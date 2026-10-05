@@ -45,7 +45,7 @@ button:disabled{opacity:.6}
   <label for="p2">Giocatore/giocatrice 2</label><input id="p2" maxlength="40" autocomplete="off">
   <label for="cat">Categoria</label>
   <select id="cat"><option>Maschile</option><option>Femminile</option><option>Misto</option></select>
-  <input id="website" class="hp" tabindex="-1" autocomplete="off" aria-hidden="true">
+  <input id="zq_check" class="hp" tabindex="-1" autocomplete="off" aria-hidden="true">
   <button id="save">Iscriviti</button>
   <div class="msg" id="msg"></div>
   <div class="msg"><strong>⚠️ Attenzione:</strong> l'iscrizione si può annullare solo fino a 24 ore prima dell'inizio del torneo.</div>
@@ -148,7 +148,7 @@ async function loadRegs(){
 $("tour").addEventListener("change", e => { S.cur = e.target.value; selectTour(); });
 
 $("save").addEventListener("click", async () => {
-  if($("website").value) return;
+  if($("zq_check").value){ $("zq_check").value = ""; msg("msg", "Controllo di sicurezza non superato: premi di nuovo Iscriviti.", true); return; }
   const team = $("team").value.trim(), p1 = $("p1").value.trim(), p2 = $("p2").value.trim();
   if(!S.cur){ msg("msg", "Scegli prima un torneo.", true); return; }
   if(!team || !p1 || !p2){ msg("msg", "Compila nome squadra e i due giocatori.", true); return; }
