@@ -59,13 +59,14 @@ button:disabled{opacity:.6}
 <div class="card" id="adminCard" hidden>
   <strong>Area organizzatore</strong><div id="adminBox"></div>
 </div>
+<div style="text-align:center"><button id="adminLink" type="button" style="background:none;border:0;color:var(--mut);font-size:.8rem;text-decoration:underline;min-height:0;margin:0;padding:8px;font-weight:400">Accesso organizzatore</button></div>
 </main>
 <script>
 const SB_URL = "https://uhjntqurkwlxzhiefkhl.supabase.co";
 const SB_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InVoam50cXVya3dseHpoaWVma2hsIiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTExOTg3OTIsImV4cCI6MjEwNjc3NDc5Mn0.6vBo-QMOfY8AdZdNSANdZoCT3fo8PzZ5J1lMJBoTpLQ";
 
 const $ = id => document.getElementById(id);
-const S = {tours: [], regs: [], cur: null, auth: null};
+const S = {tours: [], regs: [], cur: null, auth: null, open: false};
 try{ S.auth = JSON.parse(sessionStorage.getItem("mw_auth") || "null"); }catch(e){}
 const mine = () => { try{ return JSON.parse(localStorage.getItem("mw_mine") || "{}"); }catch(e){ return {}; } };
 const saveMine = o => { try{ localStorage.setItem("mw_mine", JSON.stringify(o)); }catch(e){} };
@@ -231,7 +232,8 @@ async function delTour(t){
 }
 
 function renderAdmin(){
-  $("adminCard").hidden = !(S.auth || /[?&]admin\b/.test(location.search));
+  $("adminCard").hidden = !(S.auth || S.open || /[?&]admin\b/.test(location.search));
+  $("adminLink").hidden = !!S.auth;
   const box = $("adminBox"); box.textContent = "";
   const add = (t, tag = "div", cls) => { const e = el(tag, cls, t); box.appendChild(e); return e; };
   const field = (id, label, type = "text") => { add(label, "label"); const i = el("input"); i.id = id; i.type = type; i.autocomplete = "off"; box.appendChild(i); };
@@ -255,6 +257,7 @@ function renderAdmin(){
   add("", "div", "msg").id = "amsg";
 }
 
+$("adminLink").addEventListener("click", () => { S.open = !S.open; renderAdmin(); });
 renderAdmin();
 loadTours();
 setInterval(() => { if(S.cur) loadRegs(); }, 30000);
