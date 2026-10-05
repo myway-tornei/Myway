@@ -25,7 +25,6 @@ button:disabled{opacity:.6}
 .msg{color:var(--mut);font-size:.9rem;margin-top:10px}
 .err{color:var(--red)}
 .hp{position:absolute;left:-9999px}
-details summary{cursor:pointer;color:var(--mut);font-size:.9rem}
 </style>
 </head>
 <body>
@@ -49,6 +48,7 @@ details summary{cursor:pointer;color:var(--mut);font-size:.9rem}
   <input id="website" class="hp" tabindex="-1" autocomplete="off" aria-hidden="true">
   <button id="save">Iscriviti</button>
   <div class="msg" id="msg"></div>
+  <div class="msg"><strong>⚠️ Attenzione:</strong> l'iscrizione si può annullare solo fino a 24 ore prima dell'inizio del torneo.</div>
 </div>
 
 <div class="card" id="listCard" hidden>
@@ -56,8 +56,8 @@ details summary{cursor:pointer;color:var(--mut);font-size:.9rem}
   <div id="list"></div>
 </div>
 
-<div class="card">
-  <details id="admin"><summary>Area organizzatore</summary><div id="adminBox"></div></details>
+<div class="card" id="adminCard" hidden>
+  <strong>Area organizzatore</strong><div id="adminBox"></div>
 </div>
 </main>
 <script>
@@ -70,6 +70,7 @@ try{ S.auth = JSON.parse(sessionStorage.getItem("mw_auth") || "null"); }catch(e)
 const mine = () => { try{ return JSON.parse(localStorage.getItem("mw_mine") || "{}"); }catch(e){ return {}; } };
 const saveMine = o => { try{ localStorage.setItem("mw_mine", JSON.stringify(o)); }catch(e){} };
 
+const fmtDate = s => s ? new Date(s).toLocaleString("it-IT", {weekday: "long", day: "numeric", month: "long", year: "numeric", hour: "2-digit", minute: "2-digit"}) : "";
 function el(tag, cls, text){ const e = document.createElement(tag); if(cls) e.className = cls; if(text !== undefined) e.textContent = text; return e; }
 function msg(id, t, err){ const m = $(id); m.textContent = t || ""; m.className = "msg" + (err ? " err" : ""); }
 
@@ -82,7 +83,7 @@ async function api(path, opt = {}){
 
 async function loadTours(){
   try{
-    const r = await api("tournaments?select=id,name,date_label,place&order=created_at.asc");
+    const r = await api("tournaments?select=id,name,starts_at,place&order=created_at.asc");
     if(!r.ok) throw 0;
     S.tours = await r.json();
   }catch(e){ S.tours = []; $("tinfo").textContent = "Elenco tornei non disponibile al momento."; $("tinfo").className = "msg err"; }
@@ -105,7 +106,7 @@ async function selectTour(){
   const t = S.tours.find(x => x.id === S.cur); if(!t) return;
   history.replaceState(null, "", "#t=" + t.id);
   $("tinfo").className = "msg";
-  $("tinfo").textContent = [t.date_label, t.place].filter(Boolean).join(" · ");
+  $("tinfo").textContent = [fmtDate(t.starts_at), t.place].filter(Boolean).join(" · ");
   $("formCard").hidden = false; $("listCard").hidden = false;
   msg("msg", "");
   await loadRegs(); renderAdmin();
@@ -150,6 +151,12 @@ $("save").addEventListener("click", async () => {
   const team = $("team").value.trim(), p1 = $("p1").value.trim(), p2 = $("p2").value.trim();
   if(!S.cur){ msg("msg", "Scegli prima un torneo.", true); return; }
   if(!team || !p1 || !p2){ msg("msg", "Compila nome squadra e i due giocatori.", true); return; }
+  const tr = S.tours.find(x => x.id === S.cur);
+  const late = tr && new Date(tr.starts_at) - Date.now() < 24 * 3600 * 1000;
+  const warn = late
+    ? "⚠️ Attenzione: mancano meno di 24 ore all'inizio del torneo, quindi l'iscrizione NON potrà più essere annullata.\n\nVuoi iscriverti lo stesso?"
+    : "⚠️ Attenzione: l'iscrizione potrà essere annullata solo fino a 24 ore prima dell'inizio del torneo (" + fmtDate(tr && tr.starts_at) + "). Dopo non sarà più possibile.\n\nVuoi procedere?";
+  if(!confirm(warn)) return;
   $("save").disabled = true; msg("msg", "Invio in corso…");
   const id = crypto.randomUUID(), token = crypto.randomUUID();
   try{
@@ -159,20 +166,24 @@ $("save").addEventListener("click", async () => {
     if(!r.ok) throw 0;
     const m = mine(); m[id] = token; saveMine(m);
     ["team", "p1", "p2"].forEach(i => $(i).value = "");
-    msg("msg", "Iscrizione ricevuta ✓ Puoi annullarla da qui con \"Annulla iscrizione\", usando questo stesso dispositivo.");
+    msg("msg", "Iscrizione ricevuta ✓ " + (late ? "Non potrà più essere annullata." : "Puoi annullarla con \"Annulla iscrizione\" da questo dispositivo, fino a 24 ore prima dell'inizio del torneo."));
     loadRegs();
   }catch(e){ msg("msg", "Non è stato possibile iscriversi. Riprova tra poco.", true); }
   finally{ $("save").disabled = false; }
 });
 
+const TOO_LATE = "⚠️ Mancano meno di 24 ore all'inizio del torneo: l'iscrizione non può più essere annullata. Per un imprevisto contatta l'organizzatore.";
 async function cancelMine(id, token, team){
+  const tr = S.tours.find(x => x.id === S.cur);
+  if(tr && new Date(tr.starts_at) - Date.now() < 24 * 3600 * 1000){ msg("msg", TOO_LATE, true); alert(TOO_LATE); return; }
   if(!confirm("Annullare l'iscrizione di \"" + team + "\"?")) return;
   try{
     const r = await api("rpc/delete_registration", {method: "POST", body: JSON.stringify({p_id: id, p_token: token})});
     if(!r.ok) throw 0;
-    const ok = await r.json();
+    const res = await r.json();
+    if(res === "too_late"){ msg("msg", TOO_LATE, true); alert(TOO_LATE); return; }
     const m = mine(); delete m[id]; saveMine(m);
-    msg("msg", ok ? "Iscrizione annullata." : "L'iscrizione non esisteva più.");
+    msg("msg", res === "ok" ? "Iscrizione annullata." : "L'iscrizione non esisteva più.");
     loadRegs();
   }catch(e){ msg("msg", "Impossibile annullare ora. Riprova.", true); }
 }
@@ -187,23 +198,25 @@ async function ownerRemove(id, team){
 function logout(){ S.auth = null; try{ sessionStorage.removeItem("mw_auth"); }catch(e){} renderAdmin(); if(S.cur) loadRegs(); }
 
 async function login(){
-  const email = $("aemail").value.trim(), password = $("apass").value;
-  if(!email || !password){ msg("amsg", "Inserisci email e password.", true); return; }
+  const user = $("auser").value.trim().toLowerCase(), password = $("apass").value;
+  if(!user || !password){ msg("amsg", "Inserisci username e password.", true); return; }
+  if(!/^[a-z0-9._-]+$/.test(user)){ msg("amsg", "Username non valido: usa solo lettere, numeri, punto, trattino.", true); return; }
+  const email = user + "@myway.invalid";
   msg("amsg", "Accesso in corso…");
   try{
     const r = await fetch(SB_URL + "/auth/v1/token?grant_type=password", {method: "POST", headers: {apikey: SB_KEY, "Content-Type": "application/json"}, body: JSON.stringify({email, password})});
-    if(!r.ok){ msg("amsg", "Email o password non corrette.", true); return; }
+    if(!r.ok){ msg("amsg", "Username o password non corretti.", true); return; }
     const j = await r.json();
-    S.auth = {token: j.access_token, email};
+    S.auth = {token: j.access_token, user};
     try{ sessionStorage.setItem("mw_auth", JSON.stringify(S.auth)); }catch(e){}
     renderAdmin(); if(S.cur) loadRegs();
   }catch(e){ msg("amsg", "Accesso non riuscito. Riprova.", true); }
 }
 
 async function addTour(){
-  const name = $("tname").value.trim(), date_label = $("tdate").value.trim(), place = $("tplace").value.trim();
-  if(!name){ msg("amsg", "Inserisci il nome del torneo.", true); return; }
-  const r = await api("tournaments", {method: "POST", headers: {Prefer: "return=minimal"}, body: JSON.stringify({name, date_label: date_label || null, place: place || null})});
+  const name = $("tname").value.trim(), when = $("tdate").value, place = $("tplace").value.trim();
+  if(!name || !when){ msg("amsg", "Inserisci nome, data e ora di inizio del torneo.", true); return; }
+  const r = await api("tournaments", {method: "POST", headers: {Prefer: "return=minimal"}, body: JSON.stringify({name, starts_at: new Date(when).toISOString(), place: place || null})});
   if(!r.ok){ msg("amsg", "Non riesco ad aggiungere il torneo (permessi o sessione scaduta).", true); return; }
   ["tname", "tdate", "tplace"].forEach(i => $(i).value = "");
   msg("amsg", "Torneo aggiunto ✓");
@@ -218,21 +231,22 @@ async function delTour(t){
 }
 
 function renderAdmin(){
+  $("adminCard").hidden = !(S.auth || /[?&]admin\b/.test(location.search));
   const box = $("adminBox"); box.textContent = "";
   const add = (t, tag = "div", cls) => { const e = el(tag, cls, t); box.appendChild(e); return e; };
   const field = (id, label, type = "text") => { add(label, "label"); const i = el("input"); i.id = id; i.type = type; i.autocomplete = "off"; box.appendChild(i); };
   if(!S.auth){
-    field("aemail", "Email", "email"); field("apass", "Password", "password");
+    field("auser", "Username"); field("apass", "Password", "password");
     const b = add("Accedi", "button"); b.onclick = login;
   } else {
-    add("Accesso come " + S.auth.email, "div", "msg");
+    add("Accesso come " + S.auth.user, "div", "msg");
     add("Nuovo torneo", "strong").style.display = "block";
-    field("tname", "Nome del torneo"); field("tdate", "Data (testo libero, es. Sabato 12 luglio)"); field("tplace", "Luogo (facoltativo)");
+    field("tname", "Nome del torneo"); field("tdate", "Data e ora di inizio", "datetime-local"); field("tplace", "Luogo (facoltativo)");
     const b = add("Aggiungi torneo", "button"); b.onclick = addTour;
     if(S.tours.length){
       const h = add("Tornei esistenti", "strong"); h.style.cssText = "display:block;margin-top:18px";
       S.tours.forEach(t => {
-        const row = el("div", "row"); row.append(el("span", "", t.name));
+        const row = el("div", "row"); row.append(el("span", "", t.name + " · " + fmtDate(t.starts_at)));
         const d = el("button", "del", "Elimina"); d.onclick = () => delTour(t); row.append(d); box.appendChild(row);
       });
     }
