@@ -1,0 +1,103 @@
+<!DOCTYPE html>
+<html lang="it">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>MyWay Tornei</title>
+<style>
+:root{--bg:#fffaf0;--fg:#1f2937;--card:#fff;--line:#e5e7eb;--acc:#f59e0b;--acc2:#0ea5e9;--mut:#6b7280}
+@media (prefers-color-scheme:dark){:root{--bg:#111827;--fg:#f3f4f6;--card:#1f2937;--line:#374151;--mut:#9ca3af}}
+body{margin:0;background:var(--bg);color:var(--fg);font:16px/1.5 system-ui,-apple-system,Segoe UI,sans-serif}
+main{max-width:640px;margin:0 auto;padding:20px 16px 40px}
+h1{margin:0 0 4px;font-size:1.6rem}
+.sub{color:var(--mut);margin:0 0 20px}
+.card{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:16px;margin-bottom:16px}
+label{display:block;font-size:.85rem;color:var(--mut);margin:10px 0 4px}
+input,select{width:100%;box-sizing:border-box;padding:10px;min-height:44px;font-size:16px;border:1px solid var(--line);border-radius:8px;background:var(--bg);color:var(--fg)}
+button{margin-top:14px;padding:12px 18px;min-height:44px;border:0;border-radius:8px;background:var(--acc);color:#111;font:inherit;font-weight:600;cursor:pointer}
+button:disabled{opacity:.6}
+.row{display:flex;justify-content:space-between;align-items:center;gap:8px;padding:10px 0;border-top:1px solid var(--line)}
+.row:first-of-type{border-top:0}
+.tag{font-size:.75rem;background:var(--acc2);color:#fff;border-radius:99px;padding:2px 8px;white-space:nowrap}
+.cnt{font-weight:700;color:var(--acc)}
+.msg{color:var(--mut);font-size:.9rem;margin-top:10px}
+.err{color:#dc2626}
+.hp{position:absolute;left:-9999px}
+</style>
+</head>
+<body>
+<main>
+<h1>🏐 MyWay Tornei</h1>
+<p class="sub">Tornei di beach volley: iscrivi la tua squadra e controlla chi è già dentro.</p>
+
+<div class="card">
+  <strong>Iscrivi la tua squadra</strong>
+  <label for="team">Nome squadra</label><input id="team" maxlength="40" autocomplete="off">
+  <label for="p1">Giocatore/giocatrice 1</label><input id="p1" maxlength="40" autocomplete="off">
+  <label for="p2">Giocatore/giocatrice 2</label><input id="p2" maxlength="40" autocomplete="off">
+  <label for="cat">Categoria</label>
+  <select id="cat"><option>Maschile</option><option>Femminile</option><option>Misto</option></select>
+  <input id="website" class="hp" tabindex="-1" autocomplete="off" aria-hidden="true">
+  <button id="save">Iscriviti</button>
+  <div class="msg" id="msg"></div>
+</div>
+
+<div class="card">
+  <strong>Squadre iscritte: <span class="cnt" id="n">0</span></strong>
+  <div id="list"><div class="msg">Caricamento…</div></div>
+</div>
+</main>
+<script>
+// ====== CONFIGURAZIONE (vedi README.md) ======
+const SUPABASE_URL = "https://uhjntqurkwlxzhiefkhl.supabase.co";      // es. https://abcdxyz.supabase.co
+const SUPABASE_ANON_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InVoam50cXVya3dseHpoaWVma2hsIiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTExOTg3OTIsImV4cCI6MjEwNjc3NDc5Mn0.6vBo-QMOfY8AdZdNSANdZoCT3fo8PzZ5J1lMJBoTpLQ";    // chiave "anon public"
+// =============================================
+
+const $ = id => document.getElementById(id);
+const API = SUPABASE_URL + "/rest/v1/registrations";
+const H = {apikey: SUPABASE_ANON_KEY, Authorization: "Bearer " + SUPABASE_ANON_KEY, "Content-Type": "application/json"};
+const configured = !SUPABASE_URL.startsWith("INCOLLA");
+
+function msg(t, err){ const m = $("msg"); m.textContent = t || ""; m.className = "msg" + (err ? " err" : ""); }
+
+async function load(){
+  if(!configured){ $("list").innerHTML = '<div class="msg err">Sito non ancora configurato (vedi README).</div>'; return; }
+  try{
+    const r = await fetch(API + "?select=team,p1,p2,cat&order=created_at.asc", {headers: H});
+    if(!r.ok) throw new Error(r.status);
+    const items = await r.json();
+    $("n").textContent = items.length;
+    const box = $("list"); box.textContent = "";
+    if(!items.length){ box.innerHTML = '<div class="msg">Ancora nessuna iscrizione.</div>'; return; }
+    items.forEach(it => {
+      const row = document.createElement("div"); row.className = "row";
+      const l = document.createElement("div");
+      const b = document.createElement("strong"); b.textContent = it.team;
+      const s = document.createElement("div"); s.className = "msg"; s.style.margin = "0";
+      s.textContent = [it.p1, it.p2].filter(Boolean).join(" · ");
+      l.append(b, s);
+      const t = document.createElement("span"); t.className = "tag"; t.textContent = it.cat;
+      row.append(l, t); box.appendChild(row);
+    });
+  }catch(e){ $("list").innerHTML = '<div class="msg err">Elenco non disponibile al momento.</div>'; }
+}
+
+$("save").addEventListener("click", async () => {
+  if(!configured){ msg("Sito non ancora configurato.", true); return; }
+  if($("website").value) return; // anti-spam
+  const team = $("team").value.trim(), p1 = $("p1").value.trim(), p2 = $("p2").value.trim();
+  if(!team || !p1 || !p2){ msg("Compila nome squadra e i due giocatori.", true); return; }
+  $("save").disabled = true; msg("Invio in corso…");
+  try{
+    const r = await fetch(API, {method: "POST", headers: {...H, Prefer: "return=minimal"}, body: JSON.stringify({team, p1, p2, cat: $("cat").value})});
+    if(!r.ok) throw new Error(r.status);
+    ["team","p1","p2"].forEach(i => $(i).value = "");
+    msg("Iscrizione ricevuta ✓"); load();
+  }catch(e){ msg("Non è stato possibile iscriversi. Riprova tra poco.", true); }
+  finally{ $("save").disabled = false; }
+});
+
+load(); setInterval(load, 30000);
+</script>
+</body>
+</html>
