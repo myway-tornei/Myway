@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>MyWay Tornei</title>
 <style>
-:root{--bg:#fffaf0;--fg:#1f2937;--card:#fff;--line:#e5e7eb;--acc:#f59e0b;--acc2:#0ea5e9;--mut:#6b7280}
+:root{--bg:#fffaf0;--fg:#1f2937;--card:#fff;--line:#e5e7eb;--acc:#f59e0b;--acc2:#0ea5e9;--mut:#6b7280;--red:#dc2626}
 @media (prefers-color-scheme:dark){:root{--bg:#111827;--fg:#f3f4f6;--card:#1f2937;--line:#374151;--mut:#9ca3af}}
 body{margin:0;background:var(--bg);color:var(--fg);font:16px/1.5 system-ui,-apple-system,Segoe UI,sans-serif}
 main{max-width:640px;margin:0 auto;padding:20px 16px 40px}
@@ -15,22 +15,31 @@ h1{margin:0 0 4px;font-size:1.6rem}
 label{display:block;font-size:.85rem;color:var(--mut);margin:10px 0 4px}
 input,select{width:100%;box-sizing:border-box;padding:10px;min-height:44px;font-size:16px;border:1px solid var(--line);border-radius:8px;background:var(--bg);color:var(--fg)}
 button{margin-top:14px;padding:12px 18px;min-height:44px;border:0;border-radius:8px;background:var(--acc);color:#111;font:inherit;font-weight:600;cursor:pointer}
+button.sec{background:transparent;border:1px solid var(--line);color:var(--fg)}
+button.del{background:transparent;border:1px solid var(--red);color:var(--red);margin:0;min-height:36px;padding:6px 12px;font-size:.85rem}
 button:disabled{opacity:.6}
 .row{display:flex;justify-content:space-between;align-items:center;gap:8px;padding:10px 0;border-top:1px solid var(--line)}
 .row:first-of-type{border-top:0}
 .tag{font-size:.75rem;background:var(--acc2);color:#fff;border-radius:99px;padding:2px 8px;white-space:nowrap}
 .cnt{font-weight:700;color:var(--acc)}
 .msg{color:var(--mut);font-size:.9rem;margin-top:10px}
-.err{color:#dc2626}
+.err{color:var(--red)}
 .hp{position:absolute;left:-9999px}
+details summary{cursor:pointer;color:var(--mut);font-size:.9rem}
 </style>
 </head>
 <body>
 <main>
 <h1>🏐 MyWay Tornei</h1>
-<p class="sub">Tornei di beach volley: iscrivi la tua squadra e controlla chi è già dentro.</p>
+<p class="sub">Tornei di beach volley: scegli il torneo, iscrivi la tua squadra e guarda chi è già dentro.</p>
 
 <div class="card">
+  <label for="tour" style="margin-top:0">Torneo</label>
+  <select id="tour"></select>
+  <div class="msg" id="tinfo"></div>
+</div>
+
+<div class="card" id="formCard" hidden>
   <strong>Iscrivi la tua squadra</strong>
   <label for="team">Nome squadra</label><input id="team" maxlength="40" autocomplete="off">
   <label for="p1">Giocatore/giocatrice 1</label><input id="p1" maxlength="40" autocomplete="off">
@@ -42,62 +51,199 @@ button:disabled{opacity:.6}
   <div class="msg" id="msg"></div>
 </div>
 
-<div class="card">
+<div class="card" id="listCard" hidden>
   <strong>Squadre iscritte: <span class="cnt" id="n">0</span></strong>
-  <div id="list"><div class="msg">Caricamento…</div></div>
+  <div id="list"></div>
+</div>
+
+<div class="card">
+  <details id="admin"><summary>Area organizzatore</summary><div id="adminBox"></div></details>
 </div>
 </main>
 <script>
-// ====== CONFIGURAZIONE (vedi README.md) ======
-const SUPABASE_URL = "https://uhjntqurkwlxzhiefkhl.supabase.co";      // es. https://abcdxyz.supabase.co
-const SUPABASE_ANON_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InVoam50cXVya3dseHpoaWVma2hsIiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTExOTg3OTIsImV4cCI6MjEwNjc3NDc5Mn0.6vBo-QMOfY8AdZdNSANdZoCT3fo8PzZ5J1lMJBoTpLQ";    // chiave "anon public"
-// =============================================
+const SB_URL = "https://uhjntqurkwlxzhiefkhl.supabase.co";
+const SB_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InVoam50cXVya3dseHpoaWVma2hsIiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTExOTg3OTIsImV4cCI6MjEwNjc3NDc5Mn0.6vBo-QMOfY8AdZdNSANdZoCT3fo8PzZ5J1lMJBoTpLQ";
 
 const $ = id => document.getElementById(id);
-const API = SUPABASE_URL + "/rest/v1/registrations";
-const H = {apikey: SUPABASE_ANON_KEY, Authorization: "Bearer " + SUPABASE_ANON_KEY, "Content-Type": "application/json"};
-const configured = !SUPABASE_URL.startsWith("INCOLLA");
+const S = {tours: [], regs: [], cur: null, auth: null};
+try{ S.auth = JSON.parse(sessionStorage.getItem("mw_auth") || "null"); }catch(e){}
+const mine = () => { try{ return JSON.parse(localStorage.getItem("mw_mine") || "{}"); }catch(e){ return {}; } };
+const saveMine = o => { try{ localStorage.setItem("mw_mine", JSON.stringify(o)); }catch(e){} };
 
-function msg(t, err){ const m = $("msg"); m.textContent = t || ""; m.className = "msg" + (err ? " err" : ""); }
+function el(tag, cls, text){ const e = document.createElement(tag); if(cls) e.className = cls; if(text !== undefined) e.textContent = text; return e; }
+function msg(id, t, err){ const m = $(id); m.textContent = t || ""; m.className = "msg" + (err ? " err" : ""); }
 
-async function load(){
-  if(!configured){ $("list").innerHTML = '<div class="msg err">Sito non ancora configurato (vedi README).</div>'; return; }
-  try{
-    const r = await fetch(API + "?select=team,p1,p2,cat&order=created_at.asc", {headers: H});
-    if(!r.ok) throw new Error(r.status);
-    const items = await r.json();
-    $("n").textContent = items.length;
-    const box = $("list"); box.textContent = "";
-    if(!items.length){ box.innerHTML = '<div class="msg">Ancora nessuna iscrizione.</div>'; return; }
-    items.forEach(it => {
-      const row = document.createElement("div"); row.className = "row";
-      const l = document.createElement("div");
-      const b = document.createElement("strong"); b.textContent = it.team;
-      const s = document.createElement("div"); s.className = "msg"; s.style.margin = "0";
-      s.textContent = [it.p1, it.p2].filter(Boolean).join(" · ");
-      l.append(b, s);
-      const t = document.createElement("span"); t.className = "tag"; t.textContent = it.cat;
-      row.append(l, t); box.appendChild(row);
-    });
-  }catch(e){ $("list").innerHTML = '<div class="msg err">Elenco non disponibile al momento.</div>'; }
+async function api(path, opt = {}){
+  const headers = {apikey: SB_KEY, Authorization: "Bearer " + (S.auth ? S.auth.token : SB_KEY), "Content-Type": "application/json", ...(opt.headers || {})};
+  const r = await fetch(SB_URL + "/rest/v1/" + path, {...opt, headers});
+  if(r.status === 401 && S.auth){ logout(); }
+  return r;
 }
 
-$("save").addEventListener("click", async () => {
-  if(!configured){ msg("Sito non ancora configurato.", true); return; }
-  if($("website").value) return; // anti-spam
-  const team = $("team").value.trim(), p1 = $("p1").value.trim(), p2 = $("p2").value.trim();
-  if(!team || !p1 || !p2){ msg("Compila nome squadra e i due giocatori.", true); return; }
-  $("save").disabled = true; msg("Invio in corso…");
+async function loadTours(){
   try{
-    const r = await fetch(API, {method: "POST", headers: {...H, Prefer: "return=minimal"}, body: JSON.stringify({team, p1, p2, cat: $("cat").value})});
-    if(!r.ok) throw new Error(r.status);
-    ["team","p1","p2"].forEach(i => $(i).value = "");
-    msg("Iscrizione ricevuta ✓"); load();
-  }catch(e){ msg("Non è stato possibile iscriversi. Riprova tra poco.", true); }
+    const r = await api("tournaments?select=id,name,date_label,place&order=created_at.asc");
+    if(!r.ok) throw 0;
+    S.tours = await r.json();
+  }catch(e){ S.tours = []; $("tinfo").textContent = "Elenco tornei non disponibile al momento."; $("tinfo").className = "msg err"; }
+  const sel = $("tour"); sel.textContent = "";
+  if(!S.tours.length){
+    sel.appendChild(new Option("Nessun torneo disponibile", ""));
+    S.cur = null; $("formCard").hidden = true; $("listCard").hidden = true;
+    if(!$("tinfo").textContent) $("tinfo").textContent = "Torna a trovarci: il prossimo torneo sarà pubblicato presto.";
+    renderAdmin(); return;
+  }
+  S.tours.forEach(t => sel.appendChild(new Option(t.name, t.id)));
+  const fromHash = (location.hash.match(/t=([0-9a-f-]+)/) || [])[1];
+  const keep = S.cur && S.tours.find(t => t.id === S.cur) ? S.cur : null;
+  S.cur = keep || (S.tours.find(t => t.id === fromHash) || S.tours[0]).id;
+  sel.value = S.cur;
+  await selectTour();
+}
+
+async function selectTour(){
+  const t = S.tours.find(x => x.id === S.cur); if(!t) return;
+  history.replaceState(null, "", "#t=" + t.id);
+  $("tinfo").className = "msg";
+  $("tinfo").textContent = [t.date_label, t.place].filter(Boolean).join(" · ");
+  $("formCard").hidden = false; $("listCard").hidden = false;
+  msg("msg", "");
+  await loadRegs(); renderAdmin();
+}
+
+async function loadRegs(){
+  const box = $("list");
+  try{
+    const r = await api("registrations?select=id,team,p1,p2,cat&tournament_id=eq." + S.cur + "&order=created_at.asc");
+    if(!r.ok) throw 0;
+    S.regs = await r.json();
+  }catch(e){ box.textContent = ""; box.appendChild(el("div", "msg err", "Elenco non disponibile al momento.")); return; }
+  $("n").textContent = S.regs.length;
+  box.textContent = "";
+  if(!S.regs.length){ box.appendChild(el("div", "msg", "Ancora nessuna iscrizione.")); return; }
+  const m = mine();
+  S.regs.forEach(it => {
+    const row = el("div", "row");
+    const l = el("div");
+    l.append(el("strong", "", it.team));
+    const s = el("div", "msg", [it.p1, it.p2].filter(Boolean).join(" · ")); s.style.margin = "0";
+    l.append(s);
+    const right = el("div"); right.style.cssText = "display:flex;gap:8px;align-items:center";
+    right.append(el("span", "tag", it.cat));
+    if(m[it.id]){
+      const b = el("button", "del", "Annulla iscrizione");
+      b.onclick = () => cancelMine(it.id, m[it.id], it.team);
+      right.append(b);
+    } else if(S.auth){
+      const b = el("button", "del", "Rimuovi");
+      b.onclick = () => ownerRemove(it.id, it.team);
+      right.append(b);
+    }
+    row.append(l, right); box.appendChild(row);
+  });
+}
+
+$("tour").addEventListener("change", e => { S.cur = e.target.value; selectTour(); });
+
+$("save").addEventListener("click", async () => {
+  if($("website").value) return;
+  const team = $("team").value.trim(), p1 = $("p1").value.trim(), p2 = $("p2").value.trim();
+  if(!S.cur){ msg("msg", "Scegli prima un torneo.", true); return; }
+  if(!team || !p1 || !p2){ msg("msg", "Compila nome squadra e i due giocatori.", true); return; }
+  $("save").disabled = true; msg("msg", "Invio in corso…");
+  const id = crypto.randomUUID(), token = crypto.randomUUID();
+  try{
+    const r = await api("registrations", {method: "POST", headers: {Prefer: "return=minimal"},
+      body: JSON.stringify({id, tournament_id: S.cur, team, p1, p2, cat: $("cat").value, delete_token: token})});
+    if(r.status === 409){ msg("msg", "In questo torneo esiste già una squadra con questo nome.", true); return; }
+    if(!r.ok) throw 0;
+    const m = mine(); m[id] = token; saveMine(m);
+    ["team", "p1", "p2"].forEach(i => $(i).value = "");
+    msg("msg", "Iscrizione ricevuta ✓ Puoi annullarla da qui con \"Annulla iscrizione\", usando questo stesso dispositivo.");
+    loadRegs();
+  }catch(e){ msg("msg", "Non è stato possibile iscriversi. Riprova tra poco.", true); }
   finally{ $("save").disabled = false; }
 });
 
-load(); setInterval(load, 30000);
+async function cancelMine(id, token, team){
+  if(!confirm("Annullare l'iscrizione di \"" + team + "\"?")) return;
+  try{
+    const r = await api("rpc/delete_registration", {method: "POST", body: JSON.stringify({p_id: id, p_token: token})});
+    if(!r.ok) throw 0;
+    const ok = await r.json();
+    const m = mine(); delete m[id]; saveMine(m);
+    msg("msg", ok ? "Iscrizione annullata." : "L'iscrizione non esisteva più.");
+    loadRegs();
+  }catch(e){ msg("msg", "Impossibile annullare ora. Riprova.", true); }
+}
+
+async function ownerRemove(id, team){
+  if(!confirm("Rimuovere la squadra \"" + team + "\"?")) return;
+  const r = await api("registrations?id=eq." + id, {method: "DELETE", headers: {Prefer: "return=minimal"}});
+  if(r.ok) loadRegs(); else msg("msg", "Rimozione non riuscita.", true);
+}
+
+/* ---------- Area organizzatore ---------- */
+function logout(){ S.auth = null; try{ sessionStorage.removeItem("mw_auth"); }catch(e){} renderAdmin(); if(S.cur) loadRegs(); }
+
+async function login(){
+  const email = $("aemail").value.trim(), password = $("apass").value;
+  if(!email || !password){ msg("amsg", "Inserisci email e password.", true); return; }
+  msg("amsg", "Accesso in corso…");
+  try{
+    const r = await fetch(SB_URL + "/auth/v1/token?grant_type=password", {method: "POST", headers: {apikey: SB_KEY, "Content-Type": "application/json"}, body: JSON.stringify({email, password})});
+    if(!r.ok){ msg("amsg", "Email o password non corrette.", true); return; }
+    const j = await r.json();
+    S.auth = {token: j.access_token, email};
+    try{ sessionStorage.setItem("mw_auth", JSON.stringify(S.auth)); }catch(e){}
+    renderAdmin(); if(S.cur) loadRegs();
+  }catch(e){ msg("amsg", "Accesso non riuscito. Riprova.", true); }
+}
+
+async function addTour(){
+  const name = $("tname").value.trim(), date_label = $("tdate").value.trim(), place = $("tplace").value.trim();
+  if(!name){ msg("amsg", "Inserisci il nome del torneo.", true); return; }
+  const r = await api("tournaments", {method: "POST", headers: {Prefer: "return=minimal"}, body: JSON.stringify({name, date_label: date_label || null, place: place || null})});
+  if(!r.ok){ msg("amsg", "Non riesco ad aggiungere il torneo (permessi o sessione scaduta).", true); return; }
+  ["tname", "tdate", "tplace"].forEach(i => $(i).value = "");
+  msg("amsg", "Torneo aggiunto ✓");
+  S.cur = null; loadTours();
+}
+
+async function delTour(t){
+  if(!confirm("Eliminare il torneo \"" + t.name + "\" e TUTTE le sue iscrizioni?")) return;
+  const r = await api("tournaments?id=eq." + t.id, {method: "DELETE", headers: {Prefer: "return=minimal"}});
+  if(!r.ok){ msg("amsg", "Eliminazione non riuscita.", true); return; }
+  S.cur = null; loadTours();
+}
+
+function renderAdmin(){
+  const box = $("adminBox"); box.textContent = "";
+  const add = (t, tag = "div", cls) => { const e = el(tag, cls, t); box.appendChild(e); return e; };
+  const field = (id, label, type = "text") => { add(label, "label"); const i = el("input"); i.id = id; i.type = type; i.autocomplete = "off"; box.appendChild(i); };
+  if(!S.auth){
+    field("aemail", "Email", "email"); field("apass", "Password", "password");
+    const b = add("Accedi", "button"); b.onclick = login;
+  } else {
+    add("Accesso come " + S.auth.email, "div", "msg");
+    add("Nuovo torneo", "strong").style.display = "block";
+    field("tname", "Nome del torneo"); field("tdate", "Data (testo libero, es. Sabato 12 luglio)"); field("tplace", "Luogo (facoltativo)");
+    const b = add("Aggiungi torneo", "button"); b.onclick = addTour;
+    if(S.tours.length){
+      const h = add("Tornei esistenti", "strong"); h.style.cssText = "display:block;margin-top:18px";
+      S.tours.forEach(t => {
+        const row = el("div", "row"); row.append(el("span", "", t.name));
+        const d = el("button", "del", "Elimina"); d.onclick = () => delTour(t); row.append(d); box.appendChild(row);
+      });
+    }
+    const out = add("Esci", "button", "sec"); out.onclick = logout;
+  }
+  add("", "div", "msg").id = "amsg";
+}
+
+renderAdmin();
+loadTours();
+setInterval(() => { if(S.cur) loadRegs(); }, 30000);
 </script>
 </body>
 </html>
