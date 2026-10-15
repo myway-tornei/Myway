@@ -87,13 +87,13 @@ h3{font-size:1rem;margin:16px 0 0}
 
 <div class="card" id="formCard" hidden>
   <strong>Iscrivi la tua squadra</strong>
-  <label for="team">Nome squadra</label><input id="team" maxlength="40" autocomplete="off">
+  <label for="cat" style="margin-top:12px"><b>1. Scegli la categoria</b></label>
+  <select id="cat"><option>Maschile</option><option>Femminile</option><option>Misto</option></select>
+  <label for="team">2. Nome squadra</label><input id="team" maxlength="40" autocomplete="off">
   <label for="p1">Giocatore/giocatrice 1 (nome e cognome)</label><input id="p1" maxlength="60" autocomplete="off" placeholder="Nome Cognome">
   <label for="p2">Giocatore/giocatrice 2 (nome e cognome)</label><input id="p2" maxlength="60" autocomplete="off" placeholder="Nome Cognome">
   <label for="phone">Telefono del referente</label><input id="phone" type="tel" inputmode="tel" maxlength="20" autocomplete="tel">
   <div class="msg" style="margin-top:4px">Il numero non è pubblico: lo vede solo l'organizzatore.</div>
-  <label for="cat">Categoria</label>
-  <select id="cat"><option>Maschile</option><option>Femminile</option><option>Misto</option></select>
   <input id="zq_check" class="hp" tabindex="-1" autocomplete="off" aria-hidden="true">
   <button id="save">Iscriviti</button>
   <div class="msg" id="msg"></div>
@@ -196,7 +196,7 @@ async function selectTour(){
   if(t.reg_deadline) li("⏳ Iscrizioni entro", document.createTextNode(fmtDate(t.reg_deadline)));
   const sh = $("tshare"); sh.textContent = "";
   const wa = el("button", "sec", "Condividi su WhatsApp");
-  wa.onclick = () => window.open("https://wa.me/?text=" + encodeURIComponent("🏐 " + t.name + "\n" + fmtRange(t) + (t.place ? "\n📍 " + t.place : "") + "\nIscriviti qui: " + location.href), "_blank");
+  wa.onclick = () => window.open("https://api.whatsapp.com/send?text=" + encodeURIComponent("*" + t.name + "*\n" + fmtRange(t) + (t.place ? "\nLuogo: " + t.place : "") + "\nIscriviti qui: " + location.href), "_blank");
   const cal = el("button", "sec", "Aggiungi al calendario"); cal.onclick = () => addToCalendar(t);
   sh.append(wa, cal);
   const cs = $("cat"); cs.textContent = "";
@@ -241,6 +241,8 @@ async function loadRegs(){
     card.append(el("div", "s", mx == null ? "nessun limite di squadre" : (free === 0 ? "iscritte " + n + "/" + mx + (rsv ? " · in riserva " + rsv : " · si va in riserva") : "su " + mx + " · iscritte " + n + (free <= 2 ? " · ultimi posti!" : ""))));
     if(mx != null){ const bar = el("div", "bar"); const fill = el("i"); fill.style.width = Math.min(100, Math.round(n / mx * 100)) + "%"; bar.append(fill); card.append(bar); }
     sb.append(card);
+    const opt = [...$("cat").options].find(o => o.value === c);
+    if(opt) opt.textContent = c + (mx == null ? "" : (free === 0 ? " · posti esauriti (riserva)" : " · " + free + (free === 1 ? " posto libero" : " posti liberi")));
   });
   box.textContent = "";
   if(!S.regs.length){ box.appendChild(el("div", "msg", "Ancora nessuna iscrizione.")); return; }
@@ -253,7 +255,7 @@ async function loadRegs(){
     l.append(s);
     if(S.auth && phones[it.id]){
       const p = el("div", "msg", "Tel. " + phones[it.id] + " · "); p.style.margin = "0";
-      const w = el("a", "", "WhatsApp"); w.href = "https://wa.me/" + waNumber(phones[it.id]) + "?text=" + encodeURIComponent("Ciao! Ti scrivo da MyWay Beach Volley Events per la squadra \"" + it.team + "\" iscritta al torneo \"" + (t.name || "") + "\".\n\n" + teamMsgDetails(it, t) + "\n\n"); w.target = "_blank"; w.rel = "noopener"; w.style.color = "var(--acc2)";
+      const w = el("a", "", "WhatsApp"); w.href = "https://api.whatsapp.com/send?phone=" + waNumber(phones[it.id]) + "&text=" + encodeURIComponent("Ciao! Ti scrivo da MyWay Beach Volley Events per la squadra \"" + it.team + "\" iscritta al torneo \"" + (t.name || "") + "\".\n\n" + teamMsgDetails(it, t) + "\n\n"); w.target = "_blank"; w.rel = "noopener"; w.style.color = "var(--acc2)";
       p.append(w); l.append(p);
     }
     const right = el("div"); right.style.cssText = "display:flex;gap:8px;align-items:center;flex-wrap:wrap;justify-content:flex-end";
@@ -361,11 +363,11 @@ function teamMsgDetails(it, t){
     ? new Date(t.starts_at).toLocaleDateString("it-IT", {weekday: "long", day: "numeric", month: "long", year: "numeric"}) + " → " + new Date(t.ends_at).toLocaleDateString("it-IT", {weekday: "long", day: "numeric", month: "long", year: "numeric"})
     : new Date(t.starts_at).toLocaleDateString("it-IT", {weekday: "long", day: "numeric", month: "long", year: "numeric"});
   const time = fmtTime(t.starts_at) + (t.ends_at && sameDay(t.starts_at, t.ends_at) ? " – " + fmtTime(t.ends_at) : "");
-  return "🏐 Squadra: " + it.team + "\n👥 Giocatori: " + it.p1 + " e " + it.p2 + "\n🏷️ Categoria: " + it.cat +
-    "\n📅 Giorno: " + day + "\n🕙 Orario: " + time + (t.place ? "\n📍 Luogo: " + t.place : "");
+  return "*Squadra:* " + it.team + "\n*Giocatori:* " + it.p1 + " e " + it.p2 + "\n*Categoria:* " + it.cat +
+    "\n*Giorno:* " + day + "\n*Orario:* " + time + (t.place ? "\n*Luogo:* " + t.place : "");
 }
 function promoText(it, t){
-  return "Ciao! Buone notizie da MyWay Beach Volley Events: la tua squadra \"" + it.team + "\" è stata promossa dalla lista di riserva ed è ora ISCRITTA al torneo \"" + t.name + "\".\n\n" + teamMsgDetails(it, t) + "\n\nTi chiediamo di confermare la partecipazione rispondendo a questo messaggio. A presto! 🏐";
+  return "Ciao! Buone notizie da MyWay Beach Volley Events: la tua squadra \"" + it.team + "\" è stata promossa dalla lista di riserva ed è ora ISCRITTA al torneo \"" + t.name + "\".\n\n" + teamMsgDetails(it, t) + "\n\nTi chiediamo di confermare la partecipazione rispondendo a questo messaggio. A presto!";
 }
 function waNumber(p){
   let d = String(p || "").replace(/[^0-9]/g, "");
@@ -392,7 +394,7 @@ async function renderNotify(tid){
     const wa = el("button", "", "Avvisa su WhatsApp"); wa.style.cssText = "margin:0;min-height:36px;padding:6px 12px;font-size:.85rem";
     wa.onclick = () => {
       const text = promoText(it, t);
-      window.open("https://wa.me/" + waNumber(it.phone) + "?text=" + encodeURIComponent(text), "_blank");
+      window.open("https://api.whatsapp.com/send?phone=" + waNumber(it.phone) + "&text=" + encodeURIComponent(text), "_blank");
     };
     const done = el("button", "del", "Segna come avvisata");
     done.onclick = async () => {
@@ -444,7 +446,7 @@ function openPromo(){
     item.append(el("div", "msg", t.name + " · Tel. " + it.phone));
     const ta = el("textarea", "pmsg"); ta.value = promoText(it, t); item.append(ta);
     const bt = el("div", "pbtns");
-    const wa = el("button", "", "Apri WhatsApp"); wa.onclick = () => window.open("https://wa.me/" + waNumber(it.phone) + "?text=" + encodeURIComponent(ta.value), "_blank");
+    const wa = el("button", "", "Apri WhatsApp"); wa.onclick = () => window.open("https://api.whatsapp.com/send?phone=" + waNumber(it.phone) + "&text=" + encodeURIComponent(ta.value), "_blank");
     const cp = el("button", "sec", "Copia messaggio");
     cp.onclick = async () => { try{ await navigator.clipboard.writeText(ta.value); }catch(e){ ta.select(); document.execCommand("copy"); } cp.textContent = "Copiato ✓"; };
     const dn = el("button", "del", "Segna come avvisata");
