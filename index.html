@@ -25,6 +25,7 @@ button:disabled{opacity:.6}
 .msg{color:var(--mut);font-size:.9rem;margin-top:10px}
 .err{color:var(--red)}
 .hp{position:absolute;left:-9999px}
+.notify{border:1px solid var(--acc);border-radius:10px;padding:12px;margin:10px 0;background:var(--bg)}
 .ov{position:fixed;inset:0;background:rgba(0,0,0,.55);z-index:50;display:flex;align-items:flex-start;justify-content:center;overflow:auto;padding:16px}
 .recap{background:var(--card);color:var(--fg);border-radius:14px;max-width:480px;width:100%;padding:20px;margin:auto;box-shadow:0 10px 40px rgba(0,0,0,.35)}
 .recap h2{margin:0 0 4px;font-size:1.3rem}
@@ -67,8 +68,8 @@ h3{font-size:1rem;margin:16px 0 0}
 <div class="card" id="formCard" hidden>
   <strong>Iscrivi la tua squadra</strong>
   <label for="team">Nome squadra</label><input id="team" maxlength="40" autocomplete="off">
-  <label for="p1">Giocatore/giocatrice 1</label><input id="p1" maxlength="40" autocomplete="off">
-  <label for="p2">Giocatore/giocatrice 2</label><input id="p2" maxlength="40" autocomplete="off">
+  <label for="p1">Giocatore/giocatrice 1 (nome e cognome)</label><input id="p1" maxlength="60" autocomplete="off" placeholder="Nome Cognome">
+  <label for="p2">Giocatore/giocatrice 2 (nome e cognome)</label><input id="p2" maxlength="60" autocomplete="off" placeholder="Nome Cognome">
   <label for="phone">Telefono del referente</label><input id="phone" type="tel" inputmode="tel" maxlength="20" autocomplete="tel">
   <div class="msg" style="margin-top:4px">Il numero non è pubblico: lo vede solo l'organizzatore.</div>
   <label for="cat">Categoria</label>
@@ -81,6 +82,7 @@ h3{font-size:1rem;margin:16px 0 0}
 
 <div class="card" id="listCard" hidden>
   <strong>Squadre iscritte: <span class="cnt" id="n">0</span></strong>
+  <div id="notifyBox"></div>
   <div id="list"></div>
 </div>
 
@@ -204,6 +206,7 @@ async function loadRegs(){
       if(pr.ok) (await pr.json()).forEach(x => phones[x.id] = x.phone);
     }catch(e){}
   }
+  renderNotify(S.cur);
   const t = S.tours.find(x => x.id === S.cur) || {};
   const cats = tourCats(t);
   const seats = cats.map(c => {
@@ -252,6 +255,7 @@ $("save").addEventListener("click", async () => {
   const team = $("team").value.trim(), p1 = $("p1").value.trim(), p2 = $("p2").value.trim(), phone = $("phone").value.trim();
   if(!S.cur){ msg("msg", "Scegli prima un torneo.", true); return; }
   if(!team || !p1 || !p2 || !phone){ msg("msg", "Compila nome squadra, i due giocatori e il telefono del referente.", true); return; }
+  if(!/\S+\s+\S+/.test(p1) || !/\S+\s+\S+/.test(p2)){ msg("msg", "Per ogni giocatore scrivi nome e cognome.", true); return; }
   if(!/^[0-9+ ()./-]{6,20}$/.test(phone)){ msg("msg", "Numero di telefono non valido: usa solo cifre, spazi e il segno +.", true); return; }
   const tr = S.tours.find(x => x.id === S.cur);
   const late = tr && new Date(tr.starts_at) - Date.now() < 24 * 3600 * 1000;
@@ -319,6 +323,43 @@ function showRecap(d){
   ov.addEventListener("click", e => { if(e.target === ov) ov.remove(); });
   document.body.appendChild(ov);
   ov.scrollTop = 0;
+}
+
+function waNumber(p){
+  let d = String(p || "").replace(/[^0-9]/g, "");
+  if(String(p).trim().startsWith("+")) return d;
+  if(d.startsWith("00")) return d.slice(2);
+  if(d.length === 10 && d.startsWith("3")) return "39" + d;
+  if(d.startsWith("0")) return "39" + d;
+  return d;
+}
+async function renderNotify(tid){
+  const nb = $("notifyBox"); nb.textContent = "";
+  if(!S.auth) return;
+  let list = [];
+  try{ const r = await api("rpc/admin_to_notify", {method: "POST", body: JSON.stringify({p_tid: tid})}); if(r.ok) list = await r.json(); }catch(e){}
+  if(!list.length) return;
+  const t = S.tours.find(x => x.id === tid) || {};
+  const box = el("div", "notify");
+  box.append(el("strong", "", "📣 Da avvisare: " + list.length + (list.length === 1 ? " squadra promossa" : " squadre promosse") + " dalla riserva"));
+  list.forEach(it => {
+    const row = el("div", "row");
+    const l = el("div"); l.append(el("strong", "", it.team + " (" + it.cat + ")"));
+    const s = el("div", "msg", it.p1 + " · " + it.p2 + " · Tel. " + it.phone); s.style.margin = "0"; l.append(s);
+    const right = el("div"); right.style.cssText = "display:flex;gap:6px;flex-wrap:wrap;justify-content:flex-end";
+    const wa = el("button", "", "Avvisa su WhatsApp"); wa.style.cssText = "margin:0;min-height:36px;padding:6px 12px;font-size:.85rem";
+    wa.onclick = () => {
+      const text = "Ciao! Buone notizie da MyWay Beach Volley Events: la tua squadra \"" + it.team + "\" è stata promossa dalla lista di riserva ed è ora ISCRITTA al torneo \"" + t.name + "\" (" + (t.starts_at ? fmtRange(t) : "") + (t.place ? ", " + t.place : "") + "). Ti chiediamo di confermare la partecipazione rispondendo a questo messaggio. A presto! 🏐";
+      window.open("https://wa.me/" + waNumber(it.phone) + "?text=" + encodeURIComponent(text), "_blank");
+    };
+    const done = el("button", "del", "Segna come avvisata");
+    done.onclick = async () => {
+      const r = await api("rpc/admin_mark_notified", {method: "POST", body: JSON.stringify({p_id: it.id})});
+      if(r.ok) renderNotify(tid); else msg("msg", "Operazione non riuscita.", true);
+    };
+    right.append(wa, done); row.append(l, right); box.appendChild(row);
+  });
+  nb.appendChild(box);
 }
 
 const TOO_LATE = "⚠️ Mancano meno di 24 ore all'inizio del torneo: l'iscrizione non può più essere annullata. Per un imprevisto contatta l'organizzatore.";
@@ -421,7 +462,15 @@ async function saveTour(){
   S.editing = null;
   if(!edit) S.cur = null;
   await loadTours();
-  msg("amsg", edit ? "Modifiche salvate ✓" : "Torneo aggiunto ✓");
+  let extra = "";
+  if(edit){
+    try{
+      const nr = await api("rpc/admin_to_notify", {method: "POST", body: JSON.stringify({p_tid: edit})});
+      const n = nr.ok ? (await nr.json()).length : 0;
+      if(n) extra = " 📣 " + n + (n === 1 ? " squadra è passata" : " squadre sono passate") + " dalla riserva agli iscritti: trovi l'elenco \"Da avvisare\" sopra la lista del torneo.";
+    }catch(e){}
+  }
+  msg("amsg", (edit ? "Modifiche salvate ✓" : "Torneo aggiunto ✓") + extra);
 }
 
 async function exportCsv(t){
