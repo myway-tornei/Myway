@@ -25,6 +25,13 @@ button:disabled{opacity:.6}
 .msg{color:var(--mut);font-size:.9rem;margin-top:10px}
 .err{color:var(--red)}
 .hp{position:absolute;left:-9999px}
+.pbar{position:sticky;top:0;z-index:40;background:var(--acc);color:#111;padding:12px 16px;text-align:center;font-weight:700;cursor:pointer;box-shadow:0 2px 10px rgba(0,0,0,.25)}
+.pbar u{margin-left:8px;font-weight:600}
+.pmsg{width:100%;box-sizing:border-box;min-height:150px;padding:10px;font:inherit;font-size:.9rem;border:1px solid var(--line);border-radius:8px;background:var(--bg);color:var(--fg);margin-top:8px}
+.pitem{border-top:1px solid var(--line);padding-top:12px;margin-top:12px}
+.pitem:first-of-type{border-top:0;margin-top:0}
+.pbtns{display:flex;gap:8px;flex-wrap:wrap}
+.pbtns button{margin:8px 0 0;min-height:40px;padding:8px 14px;font-size:.9rem}
 .seats{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:8px;margin-top:14px}
 .seat{border:1px solid var(--line);border-left-width:6px;border-radius:10px;padding:10px 12px;background:var(--bg)}
 .seat .c{font-size:.8rem;color:var(--mut);text-transform:uppercase;letter-spacing:.04em}
@@ -61,6 +68,7 @@ h3{font-size:1rem;margin:16px 0 0}
 </style>
 </head>
 <body>
+<div id="promoBar" class="pbar" hidden></div>
 <main>
 <h1>🏐 MyWay Tornei</h1>
 <p class="sub">Tornei di beach volley: scegli il torneo, iscrivi la tua squadra e guarda chi è già dentro.</p>
@@ -218,7 +226,7 @@ async function loadRegs(){
       if(pr.ok) (await pr.json()).forEach(x => phones[x.id] = x.phone);
     }catch(e){}
   }
-  renderNotify(S.cur);
+  renderNotify(S.cur); checkPromos();
   const t = S.tours.find(x => x.id === S.cur) || {};
   const cats = tourCats(t);
   $("n").textContent = S.regs.filter(x => !x.is_reserve).length;
@@ -245,7 +253,7 @@ async function loadRegs(){
     l.append(s);
     if(S.auth && phones[it.id]){
       const p = el("div", "msg", "Tel. " + phones[it.id] + " · "); p.style.margin = "0";
-      const w = el("a", "", "WhatsApp"); w.href = "https://wa.me/" + waNumber(phones[it.id]) + "?text=" + encodeURIComponent("Ciao! Ti scrivo da MyWay Beach Volley Events per la squadra \"" + it.team + "\" iscritta al torneo \"" + (t.name || "") + "\". "); w.target = "_blank"; w.rel = "noopener"; w.style.color = "var(--acc2)";
+      const w = el("a", "", "WhatsApp"); w.href = "https://wa.me/" + waNumber(phones[it.id]) + "?text=" + encodeURIComponent("Ciao! Ti scrivo da MyWay Beach Volley Events per la squadra \"" + it.team + "\" iscritta al torneo \"" + (t.name || "") + "\".\n\n" + teamMsgDetails(it, t) + "\n\n"); w.target = "_blank"; w.rel = "noopener"; w.style.color = "var(--acc2)";
       p.append(w); l.append(p);
     }
     const right = el("div"); right.style.cssText = "display:flex;gap:8px;align-items:center;flex-wrap:wrap;justify-content:flex-end";
@@ -348,6 +356,17 @@ function showRecap(d){
   ov.scrollTop = 0;
 }
 
+function teamMsgDetails(it, t){
+  const day = t.ends_at && !sameDay(t.starts_at, t.ends_at)
+    ? new Date(t.starts_at).toLocaleDateString("it-IT", {weekday: "long", day: "numeric", month: "long", year: "numeric"}) + " → " + new Date(t.ends_at).toLocaleDateString("it-IT", {weekday: "long", day: "numeric", month: "long", year: "numeric"})
+    : new Date(t.starts_at).toLocaleDateString("it-IT", {weekday: "long", day: "numeric", month: "long", year: "numeric"});
+  const time = fmtTime(t.starts_at) + (t.ends_at && sameDay(t.starts_at, t.ends_at) ? " – " + fmtTime(t.ends_at) : "");
+  return "🏐 Squadra: " + it.team + "\n👥 Giocatori: " + it.p1 + " e " + it.p2 + "\n🏷️ Categoria: " + it.cat +
+    "\n📅 Giorno: " + day + "\n🕙 Orario: " + time + (t.place ? "\n📍 Luogo: " + t.place : "");
+}
+function promoText(it, t){
+  return "Ciao! Buone notizie da MyWay Beach Volley Events: la tua squadra \"" + it.team + "\" è stata promossa dalla lista di riserva ed è ora ISCRITTA al torneo \"" + t.name + "\".\n\n" + teamMsgDetails(it, t) + "\n\nTi chiediamo di confermare la partecipazione rispondendo a questo messaggio. A presto! 🏐";
+}
 function waNumber(p){
   let d = String(p || "").replace(/[^0-9]/g, "");
   if(String(p).trim().startsWith("+")) return d;
@@ -372,7 +391,7 @@ async function renderNotify(tid){
     const right = el("div"); right.style.cssText = "display:flex;gap:6px;flex-wrap:wrap;justify-content:flex-end";
     const wa = el("button", "", "Avvisa su WhatsApp"); wa.style.cssText = "margin:0;min-height:36px;padding:6px 12px;font-size:.85rem";
     wa.onclick = () => {
-      const text = "Ciao! Buone notizie da MyWay Beach Volley Events: la tua squadra \"" + it.team + "\" è stata promossa dalla lista di riserva ed è ora ISCRITTA al torneo \"" + t.name + "\" (" + (t.starts_at ? fmtRange(t) : "") + (t.place ? ", " + t.place : "") + "). Ti chiediamo di confermare la partecipazione rispondendo a questo messaggio. A presto! 🏐";
+      const text = promoText(it, t);
       window.open("https://wa.me/" + waNumber(it.phone) + "?text=" + encodeURIComponent(text), "_blank");
     };
     const done = el("button", "del", "Segna come avvisata");
@@ -383,6 +402,61 @@ async function renderNotify(tid){
     right.append(wa, done); row.append(l, right); box.appendChild(row);
   });
   nb.appendChild(box);
+}
+
+S.pending = []; S.seen = new Set();
+async function checkPromos(){
+  if(!S.auth){ S.pending = []; updatePromoBar(); return; }
+  const out = [];
+  for(const t of S.tours){
+    try{
+      const r = await api("rpc/admin_to_notify", {method: "POST", body: JSON.stringify({p_tid: t.id})});
+      if(r.ok) (await r.json()).forEach(it => out.push({it, t}));
+    }catch(e){}
+  }
+  S.pending = out;
+  const fresh = out.filter(x => !S.seen.has(x.it.id));
+  fresh.forEach(x => S.seen.add(x.it.id));
+  updatePromoBar();
+  const key = out.map(x => x.it.id).join(",");
+  if(fresh.length) openPromo();
+  else if(document.getElementById("promoOv") && key !== S.lastKey) openPromo();
+  S.lastKey = key;
+}
+function updatePromoBar(){
+  const b = $("promoBar");
+  if(!S.auth || !S.pending.length){ b.hidden = true; return; }
+  b.hidden = false; b.textContent = "";
+  b.append(document.createTextNode("📣 " + S.pending.length + (S.pending.length === 1 ? " squadra è passata" : " squadre sono passate") + " dalla riserva agli iscritti: da avvisare"));
+  b.append(el("u", "", "Vedi il messaggio"));
+  b.onclick = openPromo;
+}
+function openPromo(){
+  const old = document.getElementById("promoOv"); if(old) old.remove();
+  if(!S.pending.length) return;
+  const ov = el("div", "ov"); ov.id = "promoOv";
+  const box = el("div", "recap"); ov.appendChild(box);
+  box.append(el("h2", "ok", "📣 Squadre da avvisare"));
+  box.append(el("div", "msg", "Queste squadre sono passate dalla lista di riserva agli iscritti. Invia loro il messaggio su WhatsApp (puoi modificarlo prima), poi segna la squadra come avvisata."));
+  S.pending.forEach(({it, t}) => {
+    const item = el("div", "pitem");
+    item.append(el("strong", "", it.team + " · " + it.cat));
+    item.append(el("div", "msg", t.name + " · Tel. " + it.phone));
+    const ta = el("textarea", "pmsg"); ta.value = promoText(it, t); item.append(ta);
+    const bt = el("div", "pbtns");
+    const wa = el("button", "", "Apri WhatsApp"); wa.onclick = () => window.open("https://wa.me/" + waNumber(it.phone) + "?text=" + encodeURIComponent(ta.value), "_blank");
+    const cp = el("button", "sec", "Copia messaggio");
+    cp.onclick = async () => { try{ await navigator.clipboard.writeText(ta.value); }catch(e){ ta.select(); document.execCommand("copy"); } cp.textContent = "Copiato ✓"; };
+    const dn = el("button", "del", "Segna come avvisata");
+    dn.onclick = async () => {
+      const r = await api("rpc/admin_mark_notified", {method: "POST", body: JSON.stringify({p_id: it.id})});
+      if(r.ok){ await checkPromos(); if(S.cur) renderNotify(S.cur); }
+    };
+    bt.append(wa, cp, dn); item.append(bt); box.append(item);
+  });
+  const cl = el("button", "sec", "Chiudi (resta l'avviso in alto)"); cl.style.width = "100%"; cl.onclick = () => ov.remove(); box.append(cl);
+  ov.addEventListener("click", e => { if(e.target === ov) ov.remove(); });
+  document.body.appendChild(ov);
 }
 
 const TOO_LATE = "⚠️ Mancano meno di 24 ore all'inizio del torneo: l'iscrizione non può più essere annullata. Per un imprevisto contatta l'organizzatore.";
@@ -427,7 +501,7 @@ async function ownerRemove(id, team){
 }
 
 /* ---------- Area organizzatore ---------- */
-function logout(){ S.auth = null; try{ sessionStorage.removeItem("mw_auth"); }catch(e){} renderAdmin(); if(S.cur) loadRegs(); }
+function logout(){ S.auth = null; S.pending = []; updatePromoBar(); const po = document.getElementById("promoOv"); if(po) po.remove(); try{ sessionStorage.removeItem("mw_auth"); }catch(e){} renderAdmin(); if(S.cur) loadRegs(); }
 
 async function login(){
   const user = $("auser").value.trim().toLowerCase(), password = $("apass").value;
