@@ -25,6 +25,23 @@ button:disabled{opacity:.6}
 .msg{color:var(--mut);font-size:.9rem;margin-top:10px}
 .err{color:var(--red)}
 .hp{position:absolute;left:-9999px}
+.ov{position:fixed;inset:0;background:rgba(0,0,0,.55);z-index:50;display:flex;align-items:flex-start;justify-content:center;overflow:auto;padding:16px}
+.recap{background:var(--card);color:var(--fg);border-radius:14px;max-width:480px;width:100%;padding:20px;margin:auto;box-shadow:0 10px 40px rgba(0,0,0,.35)}
+.recap h2{margin:0 0 4px;font-size:1.3rem}
+.recap dl{margin:14px 0;display:grid;grid-template-columns:auto 1fr;gap:6px 12px;font-size:.95rem}
+.recap dt{color:var(--mut)}
+.recap dd{margin:0;font-weight:600;word-break:break-word}
+.recap .ok{color:#16a34a}
+.recap .wait{color:var(--acc)}
+.recap .note{background:var(--bg);border:1px solid var(--line);border-radius:8px;padding:10px;font-size:.9rem;margin-top:10px}
+.meta{margin:10px 0 0;padding:0;list-style:none;font-size:.95rem}
+.meta li{padding:2px 0}
+.meta a{color:var(--acc2)}
+.share{display:flex;gap:8px;flex-wrap:wrap;margin-top:10px}
+.share button{margin:0;min-height:40px;padding:8px 14px;font-size:.9rem}
+.chk{display:flex;gap:14px;flex-wrap:wrap;margin-top:4px}
+.chk label{display:flex;gap:6px;align-items:center;margin:0;color:var(--fg);font-size:.95rem}
+.chk input{width:auto;min-height:0}
 .poster{display:block;max-width:100%;max-height:480px;margin:12px auto 0;border-radius:8px}
 .desc{white-space:pre-wrap;margin-top:10px;font-size:.95rem}
 .tag.res{background:var(--mut)}
@@ -40,6 +57,8 @@ h3{font-size:1rem;margin:16px 0 0}
   <label for="tour" style="margin-top:0">Torneo</label>
   <select id="tour"></select>
   <div class="msg" id="tinfo"></div>
+  <ul class="meta" id="tmeta"></ul>
+  <div class="share" id="tshare"></div>
   <div id="posterBox"></div>
   <div class="desc" id="tdesc"></div>
   <div class="msg" id="tseats"></div>
@@ -65,6 +84,15 @@ h3{font-size:1rem;margin:16px 0 0}
   <div id="list"></div>
 </div>
 
+<div class="card" id="cancelCard" hidden>
+  <strong>Vuoi annullare l'iscrizione?</strong>
+  <div class="msg" style="margin-top:4px">Se non vedi il pulsante "Annulla iscrizione" (per esempio perché ti sei iscritto da un altro telefono o computer), inserisci il nome della squadra e il telefono del referente usato all'iscrizione. Si può fare fino a 24 ore prima dell'inizio del torneo.</div>
+  <label for="ctteam">Nome squadra</label><input id="ctteam" maxlength="40" autocomplete="off">
+  <label for="ctphone">Telefono del referente</label><input id="ctphone" type="tel" inputmode="tel" maxlength="20" autocomplete="off">
+  <button id="ctbtn" class="sec">Annulla iscrizione</button>
+  <div class="msg" id="ctmsg"></div>
+</div>
+
 <div class="card" id="adminCard" hidden>
   <strong>Area organizzatore</strong><div id="adminBox"></div>
 </div>
@@ -82,6 +110,25 @@ const mine = () => { try{ return JSON.parse(localStorage.getItem("mw_mine") || "
 const saveMine = o => { try{ localStorage.setItem("mw_mine", JSON.stringify(o)); }catch(e){} };
 
 const fmtDate = s => s ? new Date(s).toLocaleString("it-IT", {weekday: "long", day: "numeric", month: "long", year: "numeric", hour: "2-digit", minute: "2-digit"}) : "";
+const fmtTime = s => new Date(s).toLocaleTimeString("it-IT", {hour: "2-digit", minute: "2-digit"});
+const sameDay = (a, b) => new Date(a).toDateString() === new Date(b).toDateString();
+const fmtRange = t => t.ends_at ? (sameDay(t.starts_at, t.ends_at) ? fmtDate(t.starts_at) + " – " + fmtTime(t.ends_at) : fmtDate(t.starts_at) + " → " + fmtDate(t.ends_at)) : fmtDate(t.starts_at);
+const ALLCATS = ["Maschile", "Femminile", "Misto"];
+const tourCats = t => ALLCATS.filter(c => !t.cat_limits || Object.prototype.hasOwnProperty.call(t.cat_limits, c));
+const catMax = (t, c) => (t.cat_limits && t.cat_limits[c] != null) ? t.cat_limits[c] : null;
+const isClosed = t => !!t && ((t.reg_deadline && Date.now() > new Date(t.reg_deadline)) || Date.now() >= new Date(t.starts_at));
+function icsDate(d){ return new Date(d).toISOString().replace(/[-:]/g, "").replace(/\.\d+Z$/, "Z"); }
+function download(name, text, type){
+  const a = document.createElement("a"); a.href = URL.createObjectURL(new Blob([text], {type})); a.download = name;
+  document.body.appendChild(a); a.click(); a.remove(); setTimeout(() => URL.revokeObjectURL(a.href), 2000);
+}
+function addToCalendar(t){
+  const end = t.ends_at || new Date(new Date(t.starts_at).getTime() + 3 * 3600 * 1000);
+  const esc = x => String(x || "").replace(/[\\;,]/g, m => "\\" + m).replace(/\n/g, "\\n");
+  const ics = ["BEGIN:VCALENDAR", "VERSION:2.0", "PRODID:-//MyWay Tornei//IT", "BEGIN:VEVENT", "UID:" + t.id + "@mywaybeachvolley.it", "DTSTAMP:" + icsDate(new Date()),
+    "DTSTART:" + icsDate(t.starts_at), "DTEND:" + icsDate(end), "SUMMARY:" + esc(t.name), "LOCATION:" + esc(t.place), "DESCRIPTION:" + esc(t.description), "END:VEVENT", "END:VCALENDAR"].join("\r\n");
+  download("torneo.ics", ics, "text/calendar");
+}
 function el(tag, cls, text){ const e = document.createElement(tag); if(cls) e.className = cls; if(text !== undefined) e.textContent = text; return e; }
 function msg(id, t, err){ const m = $(id); m.textContent = t || ""; m.className = "msg" + (err ? " err" : ""); }
 
@@ -94,14 +141,14 @@ async function api(path, opt = {}){
 
 async function loadTours(){
   try{
-    const r = await api("tournaments?select=id,name,starts_at,place,max_teams,description,poster_url&order=created_at.asc");
+    const r = await api("tournaments?select=id,name,starts_at,ends_at,place,cat_limits,description,poster_url,cost_label,format_label,reg_deadline&order=created_at.asc");
     if(!r.ok) throw 0;
     S.tours = await r.json();
   }catch(e){ S.tours = []; $("tinfo").textContent = "Elenco tornei non disponibile al momento."; $("tinfo").className = "msg err"; }
   const sel = $("tour"); sel.textContent = "";
   if(!S.tours.length){
     sel.appendChild(new Option("Nessun torneo disponibile", ""));
-    S.cur = null; $("formCard").hidden = true; $("listCard").hidden = true;
+    S.cur = null; $("formCard").hidden = true; $("listCard").hidden = true; $("cancelCard").hidden = true;
     if(!$("tinfo").textContent) $("tinfo").textContent = "Torna a trovarci: il prossimo torneo sarà pubblicato presto.";
     renderAdmin(); return;
   }
@@ -117,12 +164,29 @@ async function selectTour(){
   const t = S.tours.find(x => x.id === S.cur); if(!t) return;
   history.replaceState(null, "", "#t=" + t.id);
   $("tinfo").className = "msg";
-  $("tinfo").textContent = [fmtDate(t.starts_at), t.place].filter(Boolean).join(" · ");
+  $("tinfo").textContent = "";
+  const meta = $("tmeta"); meta.textContent = "";
+  const li = (label, node) => { const x = el("li"); x.append(el("strong", "", label + " ")); x.append(node); meta.appendChild(x); };
+  li("📅", document.createTextNode(fmtRange(t)));
+  if(t.place){ const a = el("a", "", t.place + " – apri su Google Maps"); a.href = "https://www.google.com/maps/search/?api=1&query=" + encodeURIComponent(t.place); a.target = "_blank"; a.rel = "noopener"; li("📍", a); }
+  if(t.format_label) li("🏐", document.createTextNode(t.format_label));
+  if(t.cost_label) li("💶", document.createTextNode(t.cost_label));
+  if(t.reg_deadline) li("⏳ Iscrizioni entro", document.createTextNode(fmtDate(t.reg_deadline)));
+  const sh = $("tshare"); sh.textContent = "";
+  const wa = el("button", "sec", "Condividi su WhatsApp");
+  wa.onclick = () => window.open("https://wa.me/?text=" + encodeURIComponent("🏐 " + t.name + "\n" + fmtRange(t) + (t.place ? "\n📍 " + t.place : "") + "\nIscriviti qui: " + location.href), "_blank");
+  const cal = el("button", "sec", "Aggiungi al calendario"); cal.onclick = () => addToCalendar(t);
+  sh.append(wa, cal);
+  const cs = $("cat"); cs.textContent = "";
+  tourCats(t).forEach(c => cs.appendChild(new Option(c, c)));
+  const closed = isClosed(t);
+  $("save").disabled = closed;
+  if(closed) msg("msg", "Le iscrizioni a questo torneo sono chiuse.", true);
   $("tdesc").textContent = t.description || "";
   const pb = $("posterBox"); pb.textContent = "";
   if(t.poster_url){ const im = el("img", "poster"); im.alt = "Locandina " + t.name; im.src = t.poster_url; pb.appendChild(im); }
-  $("formCard").hidden = false; $("listCard").hidden = false;
-  msg("msg", "");
+  $("formCard").hidden = false; $("listCard").hidden = false; $("cancelCard").hidden = false;
+  if(!closed) msg("msg", "");
   await loadRegs(); renderAdmin();
 }
 
@@ -141,11 +205,13 @@ async function loadRegs(){
     }catch(e){}
   }
   const t = S.tours.find(x => x.id === S.cur) || {};
-  const main = S.regs.filter(x => !x.is_reserve), res = S.regs.filter(x => x.is_reserve);
-  $("n").textContent = main.length + (t.max_teams ? " / " + t.max_teams : "");
-  $("tseats").textContent = t.max_teams
-    ? (main.length >= t.max_teams ? "Posti esauriti: le nuove squadre vanno in lista di riserva." : "Posti disponibili: " + (t.max_teams - main.length) + " su " + t.max_teams + ".")
-    : "";
+  const cats = tourCats(t);
+  const seats = cats.map(c => {
+    const n = S.regs.filter(x => x.cat === c && !x.is_reserve).length, mx = catMax(t, c);
+    return c + ": " + (mx == null ? n + " iscritte" : (n >= mx ? "posti esauriti (" + n + "/" + mx + ")" : (mx - n) + " posti liberi su " + mx));
+  });
+  $("n").textContent = S.regs.filter(x => !x.is_reserve).length;
+  $("tseats").textContent = cats.length ? "Disponibilità · " + seats.join(" · ") : "";
   box.textContent = "";
   if(!S.regs.length){ box.appendChild(el("div", "msg", "Ancora nessuna iscrizione.")); return; }
   const m = mine();
@@ -169,8 +235,14 @@ async function loadRegs(){
     }
     row.append(l, right); box.appendChild(row);
   };
-  main.forEach(draw);
-  if(res.length){ box.appendChild(el("h3", "", "Lista di riserva (" + res.length + ")")); res.forEach(draw); }
+  cats.forEach(c => {
+    const inCat = S.regs.filter(x => x.cat === c);
+    if(!inCat.length) return;
+    const mn = inCat.filter(x => !x.is_reserve), rs = inCat.filter(x => x.is_reserve), mx = catMax(t, c);
+    box.appendChild(el("h3", "", c + " (" + mn.length + (mx != null ? "/" + mx : "") + ")"));
+    mn.forEach(draw);
+    if(rs.length){ const sub = el("div", "msg", "Lista di riserva " + c + ": " + rs.length); sub.style.fontWeight = "600"; box.appendChild(sub); rs.forEach(draw); }
+  });
 }
 
 $("tour").addEventListener("change", e => { S.cur = e.target.value; selectTour(); });
@@ -187,24 +259,67 @@ $("save").addEventListener("click", async () => {
     ? "⚠️ Attenzione: mancano meno di 24 ore all'inizio del torneo, quindi l'iscrizione NON potrà più essere annullata.\n\nVuoi iscriverti lo stesso?"
     : "⚠️ Attenzione: l'iscrizione potrà essere annullata solo fino a 24 ore prima dell'inizio del torneo (" + fmtDate(tr && tr.starts_at) + "). Dopo non sarà più possibile.\n\nVuoi procedere?";
   const t0 = S.tours.find(x => x.id === S.cur) || {};
-  const full = t0.max_teams && S.regs.filter(x => !x.is_reserve).length >= t0.max_teams;
-  if(!confirm((full ? "ℹ️ I posti sono esauriti: la tua squadra andrà in LISTA DI RISERVA e verrà promossa se si libera un posto.\n\n" : "") + warn)) return;
+  const catSel = $("cat").value, mxc = catMax(t0, catSel);
+  let full = false, nCat = 0;
+  if(mxc != null){
+    try{
+      const fr = await api("registrations?select=id&tournament_id=eq." + S.cur + "&cat=eq." + encodeURIComponent(catSel) + "&is_reserve=eq.false");
+      if(fr.ok){ nCat = (await fr.json()).length; full = nCat >= mxc; }
+    }catch(e){}
+  }
+  if(!confirm((full ? "ℹ️ Categoria " + catSel + ": i posti sono esauriti (" + nCat + " squadre iscritte su " + mxc + "). La tua squadra andrà in LISTA DI RISERVA e verrà promossa se si libera un posto.\n\n" : "") + warn)) return;
   $("save").disabled = true; msg("msg", "Invio in corso…");
   const id = crypto.randomUUID(), token = crypto.randomUUID();
   try{
     const r = await api("registrations", {method: "POST", headers: {Prefer: "return=minimal"},
       body: JSON.stringify({id, tournament_id: S.cur, team, p1, p2, cat: $("cat").value, phone, delete_token: token})});
     if(r.status === 409){ msg("msg", "In questo torneo esiste già una squadra con questo nome.", true); return; }
-    if(!r.ok) throw 0;
+    if(!r.ok){
+      let txt = ""; try{ txt = await r.text(); }catch(e){}
+      if(/iscrizioni chiuse/.test(txt)){ msg("msg", "Le iscrizioni a questo torneo sono chiuse.", true); return; }
+      if(/categoria non ammessa/.test(txt)){ msg("msg", "Questa categoria non è ammessa in questo torneo.", true); return; }
+      throw 0;
+    }
     const m = mine(); m[id] = token; saveMine(m);
     ["team", "p1", "p2", "phone"].forEach(i => $(i).value = "");
     const okTxt = "Iscrizione ricevuta ✓ " + (late ? "Non potrà più essere annullata." : "Puoi annullarla con \"Annulla iscrizione\" da questo dispositivo, fino a 24 ore prima dell'inizio del torneo.");
     await loadRegs();
     const me = S.regs.find(x => x.id === id);
     msg("msg", me && me.is_reserve ? "Sei in LISTA DI RISERVA ✓ Se si libera un posto, la tua squadra passa tra gli iscritti. " + (late ? "L'iscrizione non potrà più essere annullata." : "Puoi annullarla da questo dispositivo fino a 24 ore prima dell'inizio.") : okTxt);
+    showRecap({t: S.tours.find(x => x.id === S.cur) || t0, team, p1, p2, phone, cat: catSel, reserve: !!(me && me.is_reserve), late});
   }catch(e){ msg("msg", "Non è stato possibile iscriversi. Riprova tra poco.", true); }
   finally{ $("save").disabled = false; }
 });
+
+function showRecap(d){
+  const t = d.t, old = document.getElementById("recapOv"); if(old) old.remove();
+  const ov = el("div", "ov"); ov.id = "recapOv";
+  const box = el("div", "recap"); ov.appendChild(box);
+  box.append(el("h2", d.reserve ? "wait" : "ok", d.reserve ? "⏳ Sei in lista di riserva" : "✅ Iscrizione completata"));
+  box.append(el("div", "msg", d.reserve ? "Il posto per la categoria " + d.cat + " è esaurito. Se si libera un posto, la tua squadra passa tra gli iscritti." : "La tua squadra è iscritta. Ecco il riepilogo."));
+  const dl = el("dl");
+  const row = (k, v) => { if(!v) return; dl.append(el("dt", "", k)); const dd = el("dd"); if(v.nodeType) dd.append(v); else dd.textContent = v; dl.append(dd); };
+  row("Torneo", t.name);
+  row("Quando", fmtRange(t));
+  if(t.place){ const a = el("a", "", t.place + " – apri su Google Maps"); a.href = "https://www.google.com/maps/search/?api=1&query=" + encodeURIComponent(t.place); a.target = "_blank"; a.rel = "noopener"; a.style.color = "var(--acc2)"; row("Dove", a); }
+  row("Formula", t.format_label);
+  row("Costo", t.cost_label);
+  row("Squadra", d.team);
+  row("Giocatori", d.p1 + " · " + d.p2);
+  row("Categoria", d.cat);
+  row("Referente", d.phone);
+  row("Stato", d.reserve ? "In lista di riserva" : "Iscritta");
+  box.append(dl);
+  box.append(el("div", "note", d.late
+    ? "⚠️ Mancano meno di 24 ore all'inizio del torneo: questa iscrizione non può più essere annullata."
+    : "Puoi annullare l'iscrizione fino a 24 ore prima dell'inizio (" + fmtDate(new Date(new Date(t.starts_at).getTime() - 24 * 3600 * 1000)) + "). Dalla pagina del torneo usa \"Annulla iscrizione\", oppure il riquadro in fondo con nome squadra e telefono."));
+  box.append(el("div", "msg", "Consiglio: fai uno screenshot di questa schermata per conservare il riepilogo."));
+  const b = el("button", "", "Chiudi"); b.style.width = "100%"; b.onclick = () => ov.remove();
+  box.append(b);
+  ov.addEventListener("click", e => { if(e.target === ov) ov.remove(); });
+  document.body.appendChild(ov);
+  ov.scrollTop = 0;
+}
 
 const TOO_LATE = "⚠️ Mancano meno di 24 ore all'inizio del torneo: l'iscrizione non può più essere annullata. Per un imprevisto contatta l'organizzatore.";
 async function cancelMine(id, token, team){
@@ -221,6 +336,25 @@ async function cancelMine(id, token, team){
     loadRegs();
   }catch(e){ msg("msg", "Impossibile annullare ora. Riprova.", true); }
 }
+
+$("ctbtn").addEventListener("click", async () => {
+  const team = $("ctteam").value.trim(), phone = $("ctphone").value.trim();
+  if(!S.cur){ msg("ctmsg", "Scegli prima il torneo.", true); return; }
+  if(!team || !phone){ msg("ctmsg", "Inserisci nome squadra e telefono del referente.", true); return; }
+  const tr = S.tours.find(x => x.id === S.cur);
+  if(tr && new Date(tr.starts_at) - Date.now() < 24 * 3600 * 1000){ msg("ctmsg", TOO_LATE, true); alert(TOO_LATE); return; }
+  if(!confirm("Annullare l'iscrizione della squadra \"" + team + "\"?")) return;
+  $("ctbtn").disabled = true; msg("ctmsg", "Verifica in corso…");
+  try{
+    const r = await api("rpc/cancel_by_contact", {method: "POST", body: JSON.stringify({p_tid: S.cur, p_team: team, p_phone: phone})});
+    if(!r.ok) throw 0;
+    const res = await r.json();
+    if(res === "ok"){ msg("ctmsg", "Iscrizione annullata ✓"); $("ctteam").value = ""; $("ctphone").value = ""; loadRegs(); }
+    else if(res === "too_late"){ msg("ctmsg", TOO_LATE, true); alert(TOO_LATE); }
+    else msg("ctmsg", "Nessuna iscrizione trovata con questo nome squadra e telefono. Controlla di averli scritti come all'iscrizione.", true);
+  }catch(e){ msg("ctmsg", "Impossibile annullare ora. Riprova.", true); }
+  finally{ $("ctbtn").disabled = false; }
+});
 
 async function ownerRemove(id, team){
   if(!confirm("Rimuovere la squadra \"" + team + "\"?")) return;
@@ -259,14 +393,25 @@ async function uploadPoster(file){
 
 async function saveTour(){
   const name = $("tname").value.trim(), when = $("tdate").value, place = $("tplace").value.trim();
-  const maxv = $("tmax").value.trim(), desc = $("tdesc2").value.trim(), file = $("tposter").files[0];
+  const desc = $("tdesc2").value.trim(), file = $("tposter").files[0];
   const rmPoster = $("trm") && $("trm").checked;
   if(!name || !when){ msg("amsg", "Inserisci nome, data e ora di inizio del torneo.", true); return; }
-  if(maxv && !(parseInt(maxv, 10) > 0)){ msg("amsg", "Il numero massimo di squadre deve essere un numero maggiore di zero.", true); return; }
   msg("amsg", "Salvataggio in corso…");
   let poster_url;
   try{ if(file) poster_url = await uploadPoster(file); }catch(e){ msg("amsg", e.message, true); return; }
-  const body = {name, starts_at: new Date(when).toISOString(), place: place || null, max_teams: maxv ? parseInt(maxv, 10) : null, description: desc || null};
+  const endv = $("tend").value, dlv = $("tdeadline").value;
+  if(endv && new Date(endv) <= new Date(when)){ msg("amsg", "La fine deve essere dopo l'inizio.", true); return; }
+  const limits = {};
+  for(const c of ALLCATS){
+    if(!document.querySelector('#tcats input[data-cat="' + c + '"]').checked) continue;
+    const v = document.querySelector('#tcats input[data-max="' + c + '"]').value.trim();
+    if(v !== "" && !(parseInt(v, 10) > 0)){ msg("amsg", "Il massimo di squadre per " + c + " deve essere un numero maggiore di zero, oppure vuoto.", true); return; }
+    limits[c] = v === "" ? null : parseInt(v, 10);
+  }
+  if(!Object.keys(limits).length){ msg("amsg", "Seleziona almeno una categoria.", true); return; }
+  const body = {name, starts_at: new Date(when).toISOString(), ends_at: endv ? new Date(endv).toISOString() : null, place: place || null,
+    format_label: $("tformat").value.trim() || null, cost_label: $("tcost").value.trim() || null,
+    reg_deadline: dlv ? new Date(dlv).toISOString() : null, cat_limits: limits, description: desc || null};
   if(poster_url) body.poster_url = poster_url; else if(rmPoster) body.poster_url = null; else if(!S.editing) body.poster_url = null;
   const edit = S.editing;
   const r = edit
@@ -279,15 +424,19 @@ async function saveTour(){
   msg("amsg", edit ? "Modifiche salvate ✓" : "Torneo aggiunto ✓");
 }
 
-async function setMax(t){
-  const v = prompt("Numero massimo di squadre per \"" + t.name + "\" (lascia vuoto per nessun limite):", t.max_teams || "");
-  if(v === null) return;
-  const n = v.trim() === "" ? null : parseInt(v, 10);
-  if(n !== null && !(n > 0)){ msg("amsg", "Numero non valido.", true); return; }
-  const r = await api("tournaments?id=eq." + t.id, {method: "PATCH", headers: {Prefer: "return=minimal"}, body: JSON.stringify({max_teams: n})});
-  if(!r.ok){ msg("amsg", "Modifica non riuscita.", true); return; }
-  await loadTours();
+async function exportCsv(t){
+  try{
+    const r = await api("registrations?select=id,team,p1,p2,cat,is_reserve,created_at&tournament_id=eq." + t.id + "&order=created_at.asc");
+    const pr = await api("rpc/admin_phones", {method: "POST", body: JSON.stringify({p_tid: t.id})});
+    if(!r.ok || !pr.ok) throw 0;
+    const regs = await r.json(), ph = {}; (await pr.json()).forEach(x => ph[x.id] = x.phone);
+    const q = v => '"' + String(v == null ? "" : v).replace(/"/g, '""') + '"';
+    const rows = [["Squadra", "Giocatore 1", "Giocatore 2", "Categoria", "Telefono referente", "Stato", "Iscritta il"]].concat(
+      regs.map(x => [x.team, x.p1, x.p2, x.cat, ph[x.id] || "", x.is_reserve ? "Riserva" : "Iscritta", new Date(x.created_at).toLocaleString("it-IT")]));
+    download("iscritti-" + t.name.replace(/[^a-z0-9]+/gi, "-").toLowerCase() + ".csv", "\ufeff" + rows.map(x => x.map(q).join(";")).join("\r\n"), "text/csv;charset=utf-8");
+  }catch(e){ msg("amsg", "Impossibile scaricare l'elenco.", true); }
 }
+
 
 async function delTour(t){
   if(!confirm("Eliminare il torneo \"" + t.name + "\" e TUTTE le sue iscrizioni?")) return;
@@ -310,15 +459,34 @@ function renderAdmin(){
     const et = S.editing ? S.tours.find(x => x.id === S.editing) : null;
     if(S.editing && !et) S.editing = null;
     add(et ? "Modifica torneo: " + et.name : "Nuovo torneo", "strong").style.display = "block";
-    field("tname", "Nome del torneo"); field("tdate", "Data e ora di inizio", "datetime-local"); field("tplace", "Luogo (facoltativo)");
-    field("tmax", "Numero massimo di squadre (vuoto = nessun limite; oltre si va in riserva)", "number");
+    field("tname", "Nome del torneo"); field("tdate", "Data e ora di inizio", "datetime-local"); field("tend", "Data e ora di fine (facoltativa)", "datetime-local"); field("tplace", "Luogo (nome e città, per il link a Google Maps)"); field("tformat", "Formula di gioco (es. 2x2 Mix)"); field("tcost", "Costo (es. 25,00 € a squadra)");
+    field("tdeadline", "Chiusura iscrizioni (facoltativa)", "datetime-local");
+    add("Categorie ammesse e numero massimo di squadre per ognuna (vuoto = nessun limite; oltre il massimo si va in riserva)", "label");
+    const cw = el("div"); cw.id = "tcats";
+    ALLCATS.forEach(c => {
+      const row = el("div"); row.style.cssText = "display:flex;gap:10px;align-items:center;margin:6px 0";
+      const lb = el("label"); lb.style.cssText = "display:flex;gap:6px;align-items:center;margin:0;color:var(--fg);min-width:120px";
+      const cb = el("input"); cb.type = "checkbox"; cb.checked = true; cb.dataset.cat = c; cb.style.cssText = "width:auto;min-height:0";
+      lb.append(cb, document.createTextNode(c));
+      const nm = el("input"); nm.type = "number"; nm.min = "1"; nm.placeholder = "max squadre"; nm.dataset.max = c; nm.style.maxWidth = "150px";
+      cb.onchange = () => { nm.disabled = !cb.checked; };
+      row.append(lb, nm); cw.appendChild(row);
+    });
+    box.appendChild(cw);
     add("Descrizione del torneo (facoltativa)", "label");
     const ta = el("textarea"); ta.id = "tdesc2"; ta.rows = 4; ta.maxLength = 2000; ta.style.cssText = "width:100%;box-sizing:border-box;padding:10px;font:inherit;font-size:16px;border:1px solid var(--line);border-radius:8px;background:var(--bg);color:var(--fg)"; box.appendChild(ta);
     add("Locandina (immagine JPG, PNG o WebP, max 5 MB, facoltativa)", "label");
     const fi = el("input"); fi.id = "tposter"; fi.type = "file"; fi.accept = "image/jpeg,image/png,image/webp"; box.appendChild(fi);
     if(et){
+      $("tend").value = et.ends_at ? toLocalInput(et.ends_at) : ""; $("tformat").value = et.format_label || ""; $("tcost").value = et.cost_label || "";
+      $("tdeadline").value = et.reg_deadline ? toLocalInput(et.reg_deadline) : "";
+      ALLCATS.forEach(c => {
+        const on = !et.cat_limits || Object.prototype.hasOwnProperty.call(et.cat_limits, c);
+        const cb = document.querySelector('#tcats input[data-cat="' + c + '"]'), nm = document.querySelector('#tcats input[data-max="' + c + '"]');
+        cb.checked = on; nm.disabled = !on; nm.value = on && catMax(et, c) != null ? catMax(et, c) : "";
+      });
       $("tname").value = et.name; $("tdate").value = toLocalInput(et.starts_at); $("tplace").value = et.place || "";
-      $("tmax").value = et.max_teams || ""; $("tdesc2").value = et.description || "";
+      $("tdesc2").value = et.description || "";
       if(et.poster_url){
         const lab = el("label"); lab.style.cssText = "display:flex;gap:8px;align-items:center;color:var(--fg)";
         const cb = el("input"); cb.type = "checkbox"; cb.id = "trm"; cb.style.cssText = "width:auto;min-height:0";
@@ -333,6 +501,7 @@ function renderAdmin(){
       S.tours.forEach(t => {
         const row = el("div", "row"); row.append(el("span", "", t.name + " · " + fmtDate(t.starts_at)));
         const mx = el("button", "del", "Modifica"); mx.onclick = () => { S.editing = t.id; renderAdmin(); box.scrollIntoView(); }; mx.style.marginRight = "6px"; row.append(mx);
+        const ex = el("button", "del", "Elenco CSV"); ex.onclick = () => exportCsv(t); ex.style.marginRight = "6px"; row.append(ex);
         const d = el("button", "del", "Elimina"); d.onclick = () => delTour(t); row.append(d); box.appendChild(row);
       });
     }
