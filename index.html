@@ -75,7 +75,8 @@ const SB_URL = "https://uhjntqurkwlxzhiefkhl.supabase.co";
 const SB_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InVoam50cXVya3dseHpoaWVma2hsIiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTExOTg3OTIsImV4cCI6MjEwNjc3NDc5Mn0.6vBo-QMOfY8AdZdNSANdZoCT3fo8PzZ5J1lMJBoTpLQ";
 
 const $ = id => document.getElementById(id);
-const S = {tours: [], regs: [], cur: null, auth: null, open: false};
+const S = {tours: [], regs: [], cur: null, auth: null, open: false, editing: null};
+const toLocalInput = iso => { const d = new Date(iso), p = n => String(n).padStart(2, "0"); return d.getFullYear() + "-" + p(d.getMonth() + 1) + "-" + p(d.getDate()) + "T" + p(d.getHours()) + ":" + p(d.getMinutes()); };
 try{ S.auth = JSON.parse(sessionStorage.getItem("mw_auth") || "null"); }catch(e){}
 const mine = () => { try{ return JSON.parse(localStorage.getItem("mw_mine") || "{}"); }catch(e){ return {}; } };
 const saveMine = o => { try{ localStorage.setItem("mw_mine", JSON.stringify(o)); }catch(e){} };
@@ -256,18 +257,26 @@ async function uploadPoster(file){
   return SB_URL + "/storage/v1/object/public/locandine/" + name;
 }
 
-async function addTour(){
+async function saveTour(){
   const name = $("tname").value.trim(), when = $("tdate").value, place = $("tplace").value.trim();
   const maxv = $("tmax").value.trim(), desc = $("tdesc2").value.trim(), file = $("tposter").files[0];
+  const rmPoster = $("trm") && $("trm").checked;
   if(!name || !when){ msg("amsg", "Inserisci nome, data e ora di inizio del torneo.", true); return; }
   if(maxv && !(parseInt(maxv, 10) > 0)){ msg("amsg", "Il numero massimo di squadre deve essere un numero maggiore di zero.", true); return; }
   msg("amsg", "Salvataggio in corso…");
-  let poster_url = null;
+  let poster_url;
   try{ if(file) poster_url = await uploadPoster(file); }catch(e){ msg("amsg", e.message, true); return; }
-  const r = await api("tournaments", {method: "POST", headers: {Prefer: "return=minimal"}, body: JSON.stringify({name, starts_at: new Date(when).toISOString(), place: place || null, max_teams: maxv ? parseInt(maxv, 10) : null, description: desc || null, poster_url})});
-  if(!r.ok){ msg("amsg", "Non riesco ad aggiungere il torneo (permessi o sessione scaduta, oppure database non aggiornato).", true); return; }
-  S.cur = null; await loadTours();
-  msg("amsg", "Torneo aggiunto ✓");
+  const body = {name, starts_at: new Date(when).toISOString(), place: place || null, max_teams: maxv ? parseInt(maxv, 10) : null, description: desc || null};
+  if(poster_url) body.poster_url = poster_url; else if(rmPoster) body.poster_url = null; else if(!S.editing) body.poster_url = null;
+  const edit = S.editing;
+  const r = edit
+    ? await api("tournaments?id=eq." + edit, {method: "PATCH", headers: {Prefer: "return=minimal"}, body: JSON.stringify(body)})
+    : await api("tournaments", {method: "POST", headers: {Prefer: "return=minimal"}, body: JSON.stringify(body)});
+  if(!r.ok){ msg("amsg", "Non riesco a salvare il torneo (permessi, sessione scaduta o database non aggiornato).", true); return; }
+  S.editing = null;
+  if(!edit) S.cur = null;
+  await loadTours();
+  msg("amsg", edit ? "Modifiche salvate ✓" : "Torneo aggiunto ✓");
 }
 
 async function setMax(t){
@@ -298,19 +307,32 @@ function renderAdmin(){
     const b = add("Accedi", "button"); b.onclick = login;
   } else {
     add("Accesso come " + S.auth.user, "div", "msg");
-    add("Nuovo torneo", "strong").style.display = "block";
+    const et = S.editing ? S.tours.find(x => x.id === S.editing) : null;
+    if(S.editing && !et) S.editing = null;
+    add(et ? "Modifica torneo: " + et.name : "Nuovo torneo", "strong").style.display = "block";
     field("tname", "Nome del torneo"); field("tdate", "Data e ora di inizio", "datetime-local"); field("tplace", "Luogo (facoltativo)");
     field("tmax", "Numero massimo di squadre (vuoto = nessun limite; oltre si va in riserva)", "number");
     add("Descrizione del torneo (facoltativa)", "label");
     const ta = el("textarea"); ta.id = "tdesc2"; ta.rows = 4; ta.maxLength = 2000; ta.style.cssText = "width:100%;box-sizing:border-box;padding:10px;font:inherit;font-size:16px;border:1px solid var(--line);border-radius:8px;background:var(--bg);color:var(--fg)"; box.appendChild(ta);
     add("Locandina (immagine JPG, PNG o WebP, max 5 MB, facoltativa)", "label");
     const fi = el("input"); fi.id = "tposter"; fi.type = "file"; fi.accept = "image/jpeg,image/png,image/webp"; box.appendChild(fi);
-    const b = add("Aggiungi torneo", "button"); b.onclick = addTour;
+    if(et){
+      $("tname").value = et.name; $("tdate").value = toLocalInput(et.starts_at); $("tplace").value = et.place || "";
+      $("tmax").value = et.max_teams || ""; $("tdesc2").value = et.description || "";
+      if(et.poster_url){
+        const lab = el("label"); lab.style.cssText = "display:flex;gap:8px;align-items:center;color:var(--fg)";
+        const cb = el("input"); cb.type = "checkbox"; cb.id = "trm"; cb.style.cssText = "width:auto;min-height:0";
+        lab.append(cb, document.createTextNode("Rimuovi la locandina attuale (oppure scegline una nuova sopra per sostituirla)"));
+        box.appendChild(lab);
+      }
+    }
+    const b = add(et ? "Salva modifiche" : "Aggiungi torneo", "button"); b.onclick = saveTour;
+    if(et){ const c = add("Annulla modifica", "button", "sec"); c.style.marginLeft = "8px"; c.onclick = () => { S.editing = null; renderAdmin(); }; }
     if(S.tours.length){
       const h = add("Tornei esistenti", "strong"); h.style.cssText = "display:block;margin-top:18px";
       S.tours.forEach(t => {
         const row = el("div", "row"); row.append(el("span", "", t.name + " · " + fmtDate(t.starts_at)));
-        const mx = el("button", "del", "Posti: " + (t.max_teams || "∞")); mx.onclick = () => setMax(t); mx.style.marginRight = "6px"; row.append(mx);
+        const mx = el("button", "del", "Modifica"); mx.onclick = () => { S.editing = t.id; renderAdmin(); box.scrollIntoView(); }; mx.style.marginRight = "6px"; row.append(mx);
         const d = el("button", "del", "Elimina"); d.onclick = () => delTour(t); row.append(d); box.appendChild(row);
       });
     }
