@@ -224,7 +224,11 @@ async function loadRegs(){
     l.append(el("strong", "", it.team));
     const s = el("div", "msg", [it.p1, it.p2].filter(Boolean).join(" · ")); s.style.margin = "0";
     l.append(s);
-    if(S.auth && phones[it.id]){ const p = el("div", "msg", "Tel. " + phones[it.id]); p.style.margin = "0"; l.append(p); }
+    if(S.auth && phones[it.id]){
+      const p = el("div", "msg", "Tel. " + phones[it.id] + " · "); p.style.margin = "0";
+      const w = el("a", "", "WhatsApp"); w.href = "https://wa.me/" + waNumber(phones[it.id]) + "?text=" + encodeURIComponent("Ciao! Ti scrivo da MyWay Beach Volley Events per la squadra \"" + it.team + "\" iscritta al torneo \"" + (t.name || "") + "\". "); w.target = "_blank"; w.rel = "noopener"; w.style.color = "var(--acc2)";
+      p.append(w); l.append(p);
+    }
     const right = el("div"); right.style.cssText = "display:flex;gap:8px;align-items:center;flex-wrap:wrap;justify-content:flex-end";
     right.append(el("span", it.is_reserve ? "tag res" : "tag", it.cat));
     if(m[it.id]){
