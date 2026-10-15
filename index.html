@@ -25,6 +25,17 @@ button:disabled{opacity:.6}
 .msg{color:var(--mut);font-size:.9rem;margin-top:10px}
 .err{color:var(--red)}
 .hp{position:absolute;left:-9999px}
+.seats{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:8px;margin-top:14px}
+.seat{border:1px solid var(--line);border-left-width:6px;border-radius:10px;padding:10px 12px;background:var(--bg)}
+.seat .c{font-size:.8rem;color:var(--mut);text-transform:uppercase;letter-spacing:.04em}
+.seat .n{font-size:1.5rem;font-weight:800;line-height:1.2}
+.seat .s{font-size:.85rem}
+.seat .bar{height:6px;border-radius:99px;background:var(--line);overflow:hidden;margin-top:6px}
+.seat .bar i{display:block;height:100%}
+.seat.g{border-left-color:#16a34a}.seat.g .n,.seat.g .bar i{color:#16a34a;background:none}.seat.g .bar i{background:#16a34a}
+.seat.o{border-left-color:#f59e0b}.seat.o .n{color:#d97706}.seat.o .bar i{background:#f59e0b}
+.seat.r{border-left-color:#dc2626}.seat.r .n{color:#dc2626}.seat.r .bar i{background:#dc2626}
+.seat.u{border-left-color:var(--acc2)}
 .notify{border:1px solid var(--acc);border-radius:10px;padding:12px;margin:10px 0;background:var(--bg)}
 .ov{position:fixed;inset:0;background:rgba(0,0,0,.55);z-index:50;display:flex;align-items:flex-start;justify-content:center;overflow:auto;padding:16px}
 .recap{background:var(--card);color:var(--fg);border-radius:14px;max-width:480px;width:100%;padding:20px;margin:auto;box-shadow:0 10px 40px rgba(0,0,0,.35)}
@@ -59,10 +70,11 @@ h3{font-size:1rem;margin:16px 0 0}
   <select id="tour"></select>
   <div class="msg" id="tinfo"></div>
   <ul class="meta" id="tmeta"></ul>
+  <div class="seats" id="tseats"></div>
   <div class="share" id="tshare"></div>
   <div id="posterBox"></div>
   <div class="desc" id="tdesc"></div>
-  <div class="msg" id="tseats"></div>
+
 </div>
 
 <div class="card" id="formCard" hidden>
@@ -209,12 +221,19 @@ async function loadRegs(){
   renderNotify(S.cur);
   const t = S.tours.find(x => x.id === S.cur) || {};
   const cats = tourCats(t);
-  const seats = cats.map(c => {
-    const n = S.regs.filter(x => x.cat === c && !x.is_reserve).length, mx = catMax(t, c);
-    return c + ": " + (mx == null ? n + " iscritte" : (n >= mx ? "posti esauriti (" + n + "/" + mx + ")" : (mx - n) + " posti liberi su " + mx));
-  });
   $("n").textContent = S.regs.filter(x => !x.is_reserve).length;
-  $("tseats").textContent = cats.length ? "Disponibilità · " + seats.join(" · ") : "";
+  const sb = $("tseats"); sb.textContent = "";
+  cats.forEach(c => {
+    const n = S.regs.filter(x => x.cat === c && !x.is_reserve).length, rsv = S.regs.filter(x => x.cat === c && x.is_reserve).length, mx = catMax(t, c);
+    const free = mx == null ? null : Math.max(mx - n, 0);
+    const cls = mx == null ? "u" : (free === 0 ? "r" : (free <= 2 || free <= mx / 3 ? "o" : "g"));
+    const card = el("div", "seat " + cls);
+    card.append(el("div", "c", c));
+    card.append(el("div", "n", mx == null ? n + (n === 1 ? " squadra" : " squadre") : (free === 0 ? "Esaurito" : free + (free === 1 ? " posto libero" : " posti liberi"))));
+    card.append(el("div", "s", mx == null ? "nessun limite di squadre" : (free === 0 ? "iscritte " + n + "/" + mx + (rsv ? " · in riserva " + rsv : " · si va in riserva") : "su " + mx + " · iscritte " + n + (free <= 2 ? " · ultimi posti!" : ""))));
+    if(mx != null){ const bar = el("div", "bar"); const fill = el("i"); fill.style.width = Math.min(100, Math.round(n / mx * 100)) + "%"; bar.append(fill); card.append(bar); }
+    sb.append(card);
+  });
   box.textContent = "";
   if(!S.regs.length){ box.appendChild(el("div", "msg", "Ancora nessuna iscrizione.")); return; }
   const m = mine();
