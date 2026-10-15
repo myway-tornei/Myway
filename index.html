@@ -25,6 +25,10 @@ button:disabled{opacity:.6}
 .msg{color:var(--mut);font-size:.9rem;margin-top:10px}
 .err{color:var(--red)}
 .hp{position:absolute;left:-9999px}
+.poster{display:block;max-width:100%;max-height:480px;margin:12px auto 0;border-radius:8px}
+.desc{white-space:pre-wrap;margin-top:10px;font-size:.95rem}
+.tag.res{background:var(--mut)}
+h3{font-size:1rem;margin:16px 0 0}
 </style>
 </head>
 <body>
@@ -36,6 +40,9 @@ button:disabled{opacity:.6}
   <label for="tour" style="margin-top:0">Torneo</label>
   <select id="tour"></select>
   <div class="msg" id="tinfo"></div>
+  <div id="posterBox"></div>
+  <div class="desc" id="tdesc"></div>
+  <div class="msg" id="tseats"></div>
 </div>
 
 <div class="card" id="formCard" hidden>
@@ -43,6 +50,8 @@ button:disabled{opacity:.6}
   <label for="team">Nome squadra</label><input id="team" maxlength="40" autocomplete="off">
   <label for="p1">Giocatore/giocatrice 1</label><input id="p1" maxlength="40" autocomplete="off">
   <label for="p2">Giocatore/giocatrice 2</label><input id="p2" maxlength="40" autocomplete="off">
+  <label for="phone">Telefono del referente</label><input id="phone" type="tel" inputmode="tel" maxlength="20" autocomplete="tel">
+  <div class="msg" style="margin-top:4px">Il numero non è pubblico: lo vede solo l'organizzatore.</div>
   <label for="cat">Categoria</label>
   <select id="cat"><option>Maschile</option><option>Femminile</option><option>Misto</option></select>
   <input id="zq_check" class="hp" tabindex="-1" autocomplete="off" aria-hidden="true">
@@ -84,7 +93,7 @@ async function api(path, opt = {}){
 
 async function loadTours(){
   try{
-    const r = await api("tournaments?select=id,name,starts_at,place&order=created_at.asc");
+    const r = await api("tournaments?select=id,name,starts_at,place,max_teams,description,poster_url&order=created_at.asc");
     if(!r.ok) throw 0;
     S.tours = await r.json();
   }catch(e){ S.tours = []; $("tinfo").textContent = "Elenco tornei non disponibile al momento."; $("tinfo").className = "msg err"; }
@@ -108,6 +117,9 @@ async function selectTour(){
   history.replaceState(null, "", "#t=" + t.id);
   $("tinfo").className = "msg";
   $("tinfo").textContent = [fmtDate(t.starts_at), t.place].filter(Boolean).join(" · ");
+  $("tdesc").textContent = t.description || "";
+  const pb = $("posterBox"); pb.textContent = "";
+  if(t.poster_url){ const im = el("img", "poster"); im.alt = "Locandina " + t.name; im.src = t.poster_url; pb.appendChild(im); }
   $("formCard").hidden = false; $("listCard").hidden = false;
   msg("msg", "");
   await loadRegs(); renderAdmin();
@@ -116,22 +128,35 @@ async function selectTour(){
 async function loadRegs(){
   const box = $("list");
   try{
-    const r = await api("registrations?select=id,team,p1,p2,cat&tournament_id=eq." + S.cur + "&order=created_at.asc");
+    const r = await api("registrations?select=id,team,p1,p2,cat,is_reserve&tournament_id=eq." + S.cur + "&order=created_at.asc");
     if(!r.ok) throw 0;
     S.regs = await r.json();
   }catch(e){ box.textContent = ""; box.appendChild(el("div", "msg err", "Elenco non disponibile al momento.")); return; }
-  $("n").textContent = S.regs.length;
+  const phones = {};
+  if(S.auth){
+    try{
+      const pr = await api("rpc/admin_phones", {method: "POST", body: JSON.stringify({p_tid: S.cur})});
+      if(pr.ok) (await pr.json()).forEach(x => phones[x.id] = x.phone);
+    }catch(e){}
+  }
+  const t = S.tours.find(x => x.id === S.cur) || {};
+  const main = S.regs.filter(x => !x.is_reserve), res = S.regs.filter(x => x.is_reserve);
+  $("n").textContent = main.length + (t.max_teams ? " / " + t.max_teams : "");
+  $("tseats").textContent = t.max_teams
+    ? (main.length >= t.max_teams ? "Posti esauriti: le nuove squadre vanno in lista di riserva." : "Posti disponibili: " + (t.max_teams - main.length) + " su " + t.max_teams + ".")
+    : "";
   box.textContent = "";
   if(!S.regs.length){ box.appendChild(el("div", "msg", "Ancora nessuna iscrizione.")); return; }
   const m = mine();
-  S.regs.forEach(it => {
+  const draw = it => {
     const row = el("div", "row");
     const l = el("div");
     l.append(el("strong", "", it.team));
     const s = el("div", "msg", [it.p1, it.p2].filter(Boolean).join(" · ")); s.style.margin = "0";
     l.append(s);
-    const right = el("div"); right.style.cssText = "display:flex;gap:8px;align-items:center";
-    right.append(el("span", "tag", it.cat));
+    if(S.auth && phones[it.id]){ const p = el("div", "msg", "Tel. " + phones[it.id]); p.style.margin = "0"; l.append(p); }
+    const right = el("div"); right.style.cssText = "display:flex;gap:8px;align-items:center;flex-wrap:wrap;justify-content:flex-end";
+    right.append(el("span", it.is_reserve ? "tag res" : "tag", it.cat));
     if(m[it.id]){
       const b = el("button", "del", "Annulla iscrizione");
       b.onclick = () => cancelMine(it.id, m[it.id], it.team);
@@ -142,33 +167,40 @@ async function loadRegs(){
       right.append(b);
     }
     row.append(l, right); box.appendChild(row);
-  });
+  };
+  main.forEach(draw);
+  if(res.length){ box.appendChild(el("h3", "", "Lista di riserva (" + res.length + ")")); res.forEach(draw); }
 }
 
 $("tour").addEventListener("change", e => { S.cur = e.target.value; selectTour(); });
 
 $("save").addEventListener("click", async () => {
   if($("zq_check").value){ $("zq_check").value = ""; msg("msg", "Controllo di sicurezza non superato: premi di nuovo Iscriviti.", true); return; }
-  const team = $("team").value.trim(), p1 = $("p1").value.trim(), p2 = $("p2").value.trim();
+  const team = $("team").value.trim(), p1 = $("p1").value.trim(), p2 = $("p2").value.trim(), phone = $("phone").value.trim();
   if(!S.cur){ msg("msg", "Scegli prima un torneo.", true); return; }
-  if(!team || !p1 || !p2){ msg("msg", "Compila nome squadra e i due giocatori.", true); return; }
+  if(!team || !p1 || !p2 || !phone){ msg("msg", "Compila nome squadra, i due giocatori e il telefono del referente.", true); return; }
+  if(!/^[0-9+ ()./-]{6,20}$/.test(phone)){ msg("msg", "Numero di telefono non valido: usa solo cifre, spazi e il segno +.", true); return; }
   const tr = S.tours.find(x => x.id === S.cur);
   const late = tr && new Date(tr.starts_at) - Date.now() < 24 * 3600 * 1000;
   const warn = late
     ? "⚠️ Attenzione: mancano meno di 24 ore all'inizio del torneo, quindi l'iscrizione NON potrà più essere annullata.\n\nVuoi iscriverti lo stesso?"
     : "⚠️ Attenzione: l'iscrizione potrà essere annullata solo fino a 24 ore prima dell'inizio del torneo (" + fmtDate(tr && tr.starts_at) + "). Dopo non sarà più possibile.\n\nVuoi procedere?";
-  if(!confirm(warn)) return;
+  const t0 = S.tours.find(x => x.id === S.cur) || {};
+  const full = t0.max_teams && S.regs.filter(x => !x.is_reserve).length >= t0.max_teams;
+  if(!confirm((full ? "ℹ️ I posti sono esauriti: la tua squadra andrà in LISTA DI RISERVA e verrà promossa se si libera un posto.\n\n" : "") + warn)) return;
   $("save").disabled = true; msg("msg", "Invio in corso…");
   const id = crypto.randomUUID(), token = crypto.randomUUID();
   try{
     const r = await api("registrations", {method: "POST", headers: {Prefer: "return=minimal"},
-      body: JSON.stringify({id, tournament_id: S.cur, team, p1, p2, cat: $("cat").value, delete_token: token})});
+      body: JSON.stringify({id, tournament_id: S.cur, team, p1, p2, cat: $("cat").value, phone, delete_token: token})});
     if(r.status === 409){ msg("msg", "In questo torneo esiste già una squadra con questo nome.", true); return; }
     if(!r.ok) throw 0;
     const m = mine(); m[id] = token; saveMine(m);
-    ["team", "p1", "p2"].forEach(i => $(i).value = "");
-    msg("msg", "Iscrizione ricevuta ✓ " + (late ? "Non potrà più essere annullata." : "Puoi annullarla con \"Annulla iscrizione\" da questo dispositivo, fino a 24 ore prima dell'inizio del torneo."));
-    loadRegs();
+    ["team", "p1", "p2", "phone"].forEach(i => $(i).value = "");
+    const okTxt = "Iscrizione ricevuta ✓ " + (late ? "Non potrà più essere annullata." : "Puoi annullarla con \"Annulla iscrizione\" da questo dispositivo, fino a 24 ore prima dell'inizio del torneo.");
+    await loadRegs();
+    const me = S.regs.find(x => x.id === id);
+    msg("msg", me && me.is_reserve ? "Sei in LISTA DI RISERVA ✓ Se si libera un posto, la tua squadra passa tra gli iscritti. " + (late ? "L'iscrizione non potrà più essere annullata." : "Puoi annullarla da questo dispositivo fino a 24 ore prima dell'inizio.") : okTxt);
   }catch(e){ msg("msg", "Non è stato possibile iscriversi. Riprova tra poco.", true); }
   finally{ $("save").disabled = false; }
 });
@@ -214,14 +246,38 @@ async function login(){
   }catch(e){ msg("amsg", "Accesso non riuscito. Riprova.", true); }
 }
 
+async function uploadPoster(file){
+  const ext = {"image/jpeg": "jpg", "image/png": "png", "image/webp": "webp"}[file.type];
+  if(!ext) throw new Error("La locandina deve essere un'immagine JPG, PNG o WebP.");
+  if(file.size > 5 * 1024 * 1024) throw new Error("La locandina supera i 5 MB.");
+  const name = crypto.randomUUID() + "." + ext;
+  const r = await fetch(SB_URL + "/storage/v1/object/locandine/" + name, {method: "POST", headers: {apikey: SB_KEY, Authorization: "Bearer " + S.auth.token, "Content-Type": file.type}, body: file});
+  if(!r.ok) throw new Error("Caricamento della locandina non riuscito.");
+  return SB_URL + "/storage/v1/object/public/locandine/" + name;
+}
+
 async function addTour(){
   const name = $("tname").value.trim(), when = $("tdate").value, place = $("tplace").value.trim();
+  const maxv = $("tmax").value.trim(), desc = $("tdesc2").value.trim(), file = $("tposter").files[0];
   if(!name || !when){ msg("amsg", "Inserisci nome, data e ora di inizio del torneo.", true); return; }
-  const r = await api("tournaments", {method: "POST", headers: {Prefer: "return=minimal"}, body: JSON.stringify({name, starts_at: new Date(when).toISOString(), place: place || null})});
-  if(!r.ok){ msg("amsg", "Non riesco ad aggiungere il torneo (permessi o sessione scaduta).", true); return; }
-  ["tname", "tdate", "tplace"].forEach(i => $(i).value = "");
+  if(maxv && !(parseInt(maxv, 10) > 0)){ msg("amsg", "Il numero massimo di squadre deve essere un numero maggiore di zero.", true); return; }
+  msg("amsg", "Salvataggio in corso…");
+  let poster_url = null;
+  try{ if(file) poster_url = await uploadPoster(file); }catch(e){ msg("amsg", e.message, true); return; }
+  const r = await api("tournaments", {method: "POST", headers: {Prefer: "return=minimal"}, body: JSON.stringify({name, starts_at: new Date(when).toISOString(), place: place || null, max_teams: maxv ? parseInt(maxv, 10) : null, description: desc || null, poster_url})});
+  if(!r.ok){ msg("amsg", "Non riesco ad aggiungere il torneo (permessi o sessione scaduta, oppure database non aggiornato).", true); return; }
+  S.cur = null; await loadTours();
   msg("amsg", "Torneo aggiunto ✓");
-  S.cur = null; loadTours();
+}
+
+async function setMax(t){
+  const v = prompt("Numero massimo di squadre per \"" + t.name + "\" (lascia vuoto per nessun limite):", t.max_teams || "");
+  if(v === null) return;
+  const n = v.trim() === "" ? null : parseInt(v, 10);
+  if(n !== null && !(n > 0)){ msg("amsg", "Numero non valido.", true); return; }
+  const r = await api("tournaments?id=eq." + t.id, {method: "PATCH", headers: {Prefer: "return=minimal"}, body: JSON.stringify({max_teams: n})});
+  if(!r.ok){ msg("amsg", "Modifica non riuscita.", true); return; }
+  await loadTours();
 }
 
 async function delTour(t){
@@ -244,11 +300,17 @@ function renderAdmin(){
     add("Accesso come " + S.auth.user, "div", "msg");
     add("Nuovo torneo", "strong").style.display = "block";
     field("tname", "Nome del torneo"); field("tdate", "Data e ora di inizio", "datetime-local"); field("tplace", "Luogo (facoltativo)");
+    field("tmax", "Numero massimo di squadre (vuoto = nessun limite; oltre si va in riserva)", "number");
+    add("Descrizione del torneo (facoltativa)", "label");
+    const ta = el("textarea"); ta.id = "tdesc2"; ta.rows = 4; ta.maxLength = 2000; ta.style.cssText = "width:100%;box-sizing:border-box;padding:10px;font:inherit;font-size:16px;border:1px solid var(--line);border-radius:8px;background:var(--bg);color:var(--fg)"; box.appendChild(ta);
+    add("Locandina (immagine JPG, PNG o WebP, max 5 MB, facoltativa)", "label");
+    const fi = el("input"); fi.id = "tposter"; fi.type = "file"; fi.accept = "image/jpeg,image/png,image/webp"; box.appendChild(fi);
     const b = add("Aggiungi torneo", "button"); b.onclick = addTour;
     if(S.tours.length){
       const h = add("Tornei esistenti", "strong"); h.style.cssText = "display:block;margin-top:18px";
       S.tours.forEach(t => {
         const row = el("div", "row"); row.append(el("span", "", t.name + " · " + fmtDate(t.starts_at)));
+        const mx = el("button", "del", "Posti: " + (t.max_teams || "∞")); mx.onclick = () => setMax(t); mx.style.marginRight = "6px"; row.append(mx);
         const d = el("button", "del", "Elimina"); d.onclick = () => delTour(t); row.append(d); box.appendChild(row);
       });
     }
