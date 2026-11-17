@@ -125,7 +125,7 @@ const SB_URL = "https://uhjntqurkwlxzhiefkhl.supabase.co";
 const SB_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InVoam50cXVya3dseHpoaWVma2hsIiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTExOTg3OTIsImV4cCI6MjEwNjc3NDc5Mn0.6vBo-QMOfY8AdZdNSANdZoCT3fo8PzZ5J1lMJBoTpLQ";
 
 const $ = id => document.getElementById(id);
-const S = {tours: [], regs: [], cur: null, auth: null, open: false, editing: null};
+const S = {tours: [], regs: [], cur: null, auth: null, open: false, editing: null, showPast: false};
 const toLocalInput = iso => { const d = new Date(iso), p = n => String(n).padStart(2, "0"); return d.getFullYear() + "-" + p(d.getMonth() + 1) + "-" + p(d.getDate()) + "T" + p(d.getHours()) + ":" + p(d.getMinutes()); };
 try{ S.auth = JSON.parse(sessionStorage.getItem("mw_auth") || "null"); }catch(e){}
 const mine = () => { try{ return JSON.parse(localStorage.getItem("mw_mine") || "{}"); }catch(e){ return {}; } };
@@ -139,6 +139,7 @@ const ALLCATS = ["Maschile", "Femminile", "Misto"];
 const individual = t => t && t.registration_mode === "individuale";
 const tourCats = t => ALLCATS.filter(c => !t.cat_limits || Object.prototype.hasOwnProperty.call(t.cat_limits, c));
 const catMax = (t, c) => (t.cat_limits && t.cat_limits[c] != null) ? t.cat_limits[c] : null;
+const isPast = t => Date.now() >= new Date(t.ends_at || t.starts_at).getTime();
 const isClosed = t => !!t && ((t.reg_deadline && Date.now() > new Date(t.reg_deadline)) || Date.now() >= new Date(t.starts_at));
 function icsDate(d){ return new Date(d).toISOString().replace(/[-:]/g, "").replace(/\.\d+Z$/, "Z"); }
 function download(name, text, type){
@@ -169,16 +170,19 @@ async function loadTours(){
     S.tours = await r.json();
   }catch(e){ S.tours = []; $("tinfo").textContent = "Elenco tornei non disponibile al momento."; $("tinfo").className = "msg err"; }
   const sel = $("tour"); sel.textContent = "";
-  if(!S.tours.length){
-    sel.appendChild(new Option("Nessun torneo disponibile", ""));
+  const visible = S.tours.filter(t => !isPast(t) || (S.auth && S.showPast));
+  if(!visible.length){
+    sel.appendChild(new Option("Nessun torneo in programma", ""));
     S.cur = null; $("formCard").hidden = true; $("listCard").hidden = true; $("cancelCard").hidden = true;
-    if(!$("tinfo").textContent) $("tinfo").textContent = "Torna a trovarci: il prossimo torneo sarà pubblicato presto.";
+    $("tmeta").textContent = ""; $("tseats").textContent = ""; $("tshare").textContent = "";
+    $("posterBox").textContent = ""; $("tdesc").textContent = "";
+    $("tinfo").textContent = "Torna a trovarci: il prossimo torneo sarà pubblicato presto.";
     renderAdmin(); return;
   }
-  S.tours.forEach(t => sel.appendChild(new Option(t.name, t.id)));
+  visible.forEach(t => sel.appendChild(new Option(t.name, t.id)));
   const fromHash = (location.hash.match(/t=([0-9a-f-]+)/) || [])[1];
-  const keep = S.cur && S.tours.find(t => t.id === S.cur) ? S.cur : null;
-  S.cur = keep || (S.tours.find(t => t.id === fromHash) || S.tours[0]).id;
+  const keep = S.cur && visible.find(t => t.id === S.cur) ? S.cur : null;
+  S.cur = keep || (visible.find(t => t.id === fromHash) || visible[0]).id;
   sel.value = S.cur;
   await selectTour();
 }
@@ -515,7 +519,7 @@ async function ownerRemove(id, team){
 }
 
 /* ---------- Area organizzatore ---------- */
-function logout(){ S.auth = null; S.pending = []; updatePromoBar(); const po = document.getElementById("promoOv"); if(po) po.remove(); try{ sessionStorage.removeItem("mw_auth"); }catch(e){} renderAdmin(); if(S.cur) loadRegs(); }
+function logout(){ S.auth = null; S.pending = []; updatePromoBar(); const po = document.getElementById("promoOv"); if(po) po.remove(); try{ sessionStorage.removeItem("mw_auth"); }catch(e){} S.showPast = false; loadTours(); }
 
 async function login(){
   const user = $("auser").value.trim().toLowerCase(), password = $("apass").value;
@@ -529,7 +533,7 @@ async function login(){
     const j = await r.json();
     S.auth = {token: j.access_token, user};
     try{ sessionStorage.setItem("mw_auth", JSON.stringify(S.auth)); }catch(e){}
-    renderAdmin(); if(S.cur) loadRegs();
+    renderAdmin(); loadTours();
   }catch(e){ msg("amsg", "Accesso non riuscito. Riprova.", true); }
 }
 
@@ -616,6 +620,12 @@ function renderAdmin(){
     const b = add("Accedi", "button"); b.onclick = login;
   } else {
     add("Accesso come " + S.auth.user, "div", "msg");
+    const pastLabel = add("", "label");
+    pastLabel.style.cssText = "display:flex;gap:8px;align-items:center;color:var(--fg)";
+    const pastCb = el("input"); pastCb.type = "checkbox"; pastCb.checked = S.showPast;
+    pastCb.style.cssText = "width:auto;min-height:0";
+    pastCb.onchange = () => { S.showPast = pastCb.checked; loadTours(); };
+    pastLabel.append(pastCb, document.createTextNode("Mostra anche i tornei passati nel menu (solo organizzatore)"));
     const et = S.editing ? S.tours.find(x => x.id === S.editing) : null;
     if(S.editing && !et) S.editing = null;
     add(et ? "Modifica torneo: " + et.name : "Nuovo torneo", "strong").style.display = "block";
