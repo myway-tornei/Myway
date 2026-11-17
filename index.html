@@ -87,8 +87,8 @@ h3{font-size:1rem;margin:16px 0 0}
 
 <div class="card" id="formCard" hidden>
   <strong id="formTitle">Iscrivi la tua squadra</strong>
-  <label for="cat" style="margin-top:12px"><b>1. Scegli la categoria</b></label>
-  <select id="cat"><option>Maschile</option><option>Femminile</option><option>Misto</option></select>
+  <div id="categoryField"><label for="cat" style="margin-top:12px"><b>1. Scegli la categoria</b></label>
+  <select id="cat"><option>Maschile</option><option>Femminile</option><option>Misto</option></select></div>
   <div id="teamFields"><div id="teamNameField"><label for="team">2. Nome squadra</label><input id="team" maxlength="40" autocomplete="off"></div>
   <label for="p1">Giocatore/giocatrice 1 (nome e cognome)</label><input id="p1" maxlength="60" autocomplete="off" placeholder="Nome Cognome">
   <label for="p2">Giocatore/giocatrice 2 (nome e cognome)</label><input id="p2" maxlength="60" autocomplete="off" placeholder="Nome Cognome"></div><div id="singleFields" hidden><label for="singleName">Nome e cognome</label><input id="singleName" maxlength="60" autocomplete="off" placeholder="Nome Cognome"><label for="level">Livello di gioco</label><select id="level"><option value="">Seleziona il livello</option><option value="Base/Intermedio">Base/Intermedio</option><option value="Intermedio/Avanzato">Intermedio/Avanzato</option></select></div>
@@ -207,11 +207,14 @@ async function selectTour(){
   sh.append(wa, cal);
   const single = individual(t);
   $("teamFields").hidden = single; $("singleFields").hidden = !single;
+  $("categoryField").hidden = single;
   $("teamNameField").hidden = !showTeamName(t);
   $("formTitle").textContent = single ? "Iscriviti al torneo" : "Iscrivi la tua squadra";
   $("listTitle").textContent = single ? "Partecipanti iscritti" : "Squadre iscritte";
   const cs = $("cat"); cs.textContent = "";
   tourCats(t).forEach(c => cs.appendChild(new Option(c, c)));
+  // Per i tornei individuali la categoria rimane un dato tecnico, non richiesto al partecipante.
+  if(single && cs.options.length) cs.selectedIndex = 0;
   const closed = isClosed(t);
   $("save").disabled = closed;
   if(closed) msg("msg", "Le iscrizioni a questo torneo sono chiuse.", true);
@@ -248,7 +251,7 @@ async function loadRegs(){
     const free = mx == null ? null : Math.max(mx - n, 0);
     const cls = mx == null ? "u" : (free === 0 ? "r" : (free <= 2 || free <= mx / 3 ? "o" : "g"));
     const card = el("div", "seat " + cls);
-    card.append(el("div", "c", c));
+    card.append(el("div", "c", individual(t) ? "Posti disponibili" : c));
     card.append(el("div", "n", mx == null ? n + (n === 1 ? " " + unit + "e" : " " + unit + (individual(t) ? "i" : "e")) : (free === 0 ? "Esaurito" : free + (free === 1 ? " posto libero" : " posti liberi"))));
     card.append(el("div", "s", mx == null ? "nessun limite di " + (individual(t) ? "partecipanti" : "squadre") : (free === 0 ? "iscritte " + n + "/" + mx + (rsv ? " · in riserva " + rsv : " · si va in riserva") : "su " + mx + " · iscritte " + n + (free <= 2 ? " · ultimi posti!" : ""))));
     if(mx != null){ const bar = el("div", "bar"); const fill = el("i"); fill.style.width = Math.min(100, Math.round(n / mx * 100)) + "%"; bar.append(fill); card.append(bar); }
@@ -271,7 +274,8 @@ async function loadRegs(){
       p.append(w); l.append(p);
     }
     const right = el("div"); right.style.cssText = "display:flex;gap:8px;align-items:center;flex-wrap:wrap;justify-content:flex-end";
-    right.append(el("span", it.is_reserve ? "tag res" : "tag", it.cat));
+    if(!individual(t)) right.append(el("span", it.is_reserve ? "tag res" : "tag", it.cat));
+    else if(it.is_reserve) right.append(el("span", "tag res", "Riserva"));
     if(m[it.id]){
       const b = el("button", "del", "Annulla iscrizione");
       b.onclick = () => cancelMine(it.id, m[it.id], it.team);
@@ -287,9 +291,9 @@ async function loadRegs(){
     const inCat = S.regs.filter(x => x.cat === c);
     if(!inCat.length) return;
     const mn = inCat.filter(x => !x.is_reserve), rs = inCat.filter(x => x.is_reserve), mx = catMax(t, c);
-    box.appendChild(el("h3", "", c + " (" + mn.length + (mx != null ? "/" + mx : "") + ")"));
+    if(!individual(t)) box.appendChild(el("h3", "", c + " (" + mn.length + (mx != null ? "/" + mx : "") + ")"));
     mn.forEach(draw);
-    if(rs.length){ const sub = el("div", "msg", "Lista di riserva " + c + ": " + rs.length); sub.style.fontWeight = "600"; box.appendChild(sub); rs.forEach(draw); }
+    if(rs.length){ const sub = el("div", "msg", (individual(t) ? "Lista di riserva" : "Lista di riserva " + c) + ": " + rs.length); sub.style.fontWeight = "600"; box.appendChild(sub); rs.forEach(draw); }
   });
 }
 
@@ -560,12 +564,17 @@ async function saveTour(){
   const endv = $("tend").value, dlv = $("tdeadline").value;
   if(endv && new Date(endv) <= new Date(when)){ msg("amsg", "La fine deve essere dopo l'inizio.", true); return; }
   const limits = {};
-  for(const c of ALLCATS){
+  if($("tmode").value === "individuale"){
+    const v = $("tindlimit").value.trim();
+    if(v !== "" && (!/^[1-9]\d*$/.test(v) || Number(v) > 100000)){ msg("amsg", "Inserisci un limite valido oppure scegli Nessun limite.", true); return; }
+    limits.Misto = v === "" ? null : Number(v);
+  } else for(const c of ALLCATS){
     if(!document.querySelector('#tcats input[data-cat="' + c + '"]').checked) continue;
     const v = document.querySelector('#tcats input[data-max="' + c + '"]').value.trim();
     if(v !== "" && !(parseInt(v, 10) > 0)){ msg("amsg", "Il massimo di squadre per " + c + " deve essere un numero maggiore di zero, oppure vuoto.", true); return; }
     limits[c] = v === "" ? null : parseInt(v, 10);
   }
+  if($("tmode").value === "individuale" && $("tindchoice").value === "limited" && !$("tindnumber").value.trim()){ msg("amsg", "Inserisci il numero massimo di partecipanti.", true); return; }
   if(!Object.keys(limits).length){ msg("amsg", "Seleziona almeno una categoria.", true); return; }
   const body = {name, starts_at: new Date(when).toISOString(), ends_at: endv ? new Date(endv).toISOString() : null, place: place || null,
     format_label: $("tformat").value.trim() || null, cost_label: $("tcost").value.trim() || null,
@@ -590,17 +599,61 @@ async function saveTour(){
   msg("amsg", (edit ? "Modifiche salvate ✓" : "Torneo aggiunto ✓") + extra);
 }
 
+const LEVELS = ["Base/Intermedio", "Intermedio/Avanzato"];
+async function adminRegistrationData(t){
+  if(!S.auth) throw new Error("Accesso organizzatore richiesto");
+  const r = await api("registrations?select=id,team,p1,p2,cat,is_reserve,level,created_at&tournament_id=eq." + t.id + "&order=created_at.asc");
+  const pr = await api("rpc/admin_phones", {method: "POST", body: JSON.stringify({p_tid: t.id})});
+  if(!r.ok || !pr.ok) throw new Error("Lettura iscrizioni non riuscita");
+  const regs = await r.json(), ph = {};
+  (await pr.json()).forEach(x => ph[x.id] = x.phone);
+  return {regs, ph};
+}
+function groupedRegs(regs, t){
+  const groups = individual(t) ? LEVELS : tourCats(t);
+  const key = x => individual(t) ? (x.level || "Non indicato") : x.cat;
+  const names = [...groups, ...new Set(regs.map(key).filter(x => !groups.includes(x)))];
+  return names.map(name => ({name, items: regs.filter(x => key(x) === name)}));
+}
 async function exportCsv(t){
   try{
-    const r = await api("registrations?select=id,team,p1,p2,cat,is_reserve,level,created_at&tournament_id=eq." + t.id + "&order=created_at.asc");
-    const pr = await api("rpc/admin_phones", {method: "POST", body: JSON.stringify({p_tid: t.id})});
-    if(!r.ok || !pr.ok) throw 0;
-    const regs = await r.json(), ph = {}; (await pr.json()).forEach(x => ph[x.id] = x.phone);
+    const {regs, ph} = await adminRegistrationData(t);
     const q = v => '"' + String(v == null ? "" : v).replace(/"/g, '""') + '"';
-    const rows = [["Squadra", "Giocatore 1", "Giocatore 2", "Categoria", "Livello", "Telefono referente", "Stato", "Iscritta il"]].concat(
-      regs.map(x => [x.team, x.p1, x.p2, x.cat, x.level || "", ph[x.id] || "", x.is_reserve ? "Riserva" : "Iscritta", new Date(x.created_at).toLocaleString("it-IT")]));
+    const rows = [];
+    for(const g of groupedRegs(regs, t)){
+      if(!g.items.length) continue;
+      rows.push([individual(t) ? "LIVELLO: " + g.name : "CATEGORIA: " + g.name]);
+      rows.push(["Squadra", "Giocatore 1 / Partecipante", "Giocatore 2", "Categoria", "Livello", "Telefono referente", "Stato", "Iscritto il"]);
+      g.items.forEach(x => rows.push([individual(t) ? "" : x.team, x.p1, individual(t) ? "" : x.p2, individual(t) ? "" : x.cat, x.level || "", ph[x.id] || "", x.is_reserve ? "Riserva" : "Iscritto", new Date(x.created_at).toLocaleString("it-IT")]));
+      rows.push([]);
+    }
+    if(!rows.length) rows.push(["Nessuna iscrizione"]);
     download("iscritti-" + t.name.replace(/[^a-z0-9]+/gi, "-").toLowerCase() + ".csv", "\ufeff" + rows.map(x => x.map(q).join(";")).join("\r\n"), "text/csv;charset=utf-8");
-  }catch(e){ msg("amsg", "Impossibile scaricare l'elenco.", true); }
+  }catch(e){ msg("amsg", "Impossibile scaricare l'elenco: controlla la sessione organizzatore.", true); }
+}
+async function showAdminRegistrations(t, target){
+  if(!S.auth) return;
+  target.textContent = "Caricamento iscritti…";
+  try{
+    const {regs, ph} = await adminRegistrationData(t);
+    if(!S.auth) {target.textContent = ""; return;}
+    target.textContent = "";
+    const title = el("strong", "", "Iscritti: " + t.name + " (" + regs.length + ")"); target.append(title);
+    if(!regs.length){target.append(el("div", "msg", "Nessuna iscrizione.")); return;}
+    for(const g of groupedRegs(regs, t)){
+      if(!g.items.length) continue;
+      const confirmed = g.items.filter(x => !x.is_reserve).length;
+      const heading = el("h3", "", g.name + " — " + confirmed + " iscritti" + (g.items.length > confirmed ? ", " + (g.items.length - confirmed) + " in riserva" : ""));
+      target.append(heading);
+      for(const x of g.items){
+        const row = el("div", "row");
+        const left = el("div");
+        left.append(el("strong", "", individual(t) ? x.p1 : x.team));
+        left.append(el("div", "msg", (individual(t) ? "" : [x.p1, x.p2].filter(Boolean).join(" · ") + " · ") + "Tel. " + (ph[x.id] || "non disponibile") + " · " + (x.is_reserve ? "Riserva" : "Confermato")));
+        row.append(left); target.append(row);
+      }
+    }
+  }catch(e){target.textContent = "Impossibile caricare l'elenco riservato. Verifica il login.";}
 }
 
 
@@ -639,7 +692,7 @@ function renderAdmin(){
     const syncTeamName = () => { teamNameLabel.hidden = mode.value === "individuale"; }; mode.addEventListener("change", syncTeamName); syncTeamName();
     field("tdate", "Data e ora di inizio", "datetime-local"); field("tend", "Data e ora di fine (facoltativa)", "datetime-local"); field("tplace", "Luogo (nome e città, per il link a Google Maps)"); field("tformat", "Formula di gioco (es. 2x2 Mix)"); field("tcost", "Costo (es. 25,00 € a squadra)");
     field("tdeadline", "Chiusura iscrizioni (facoltativa)", "datetime-local");
-    add("Categorie ammesse e numero massimo di squadre per ognuna (vuoto = nessun limite; oltre il massimo si va in riserva)", "label");
+    const catHelp = add("Categorie ammesse e numero massimo di squadre per ognuna (vuoto = nessun limite; oltre il massimo si va in riserva)", "label");
     const cw = el("div"); cw.id = "tcats";
     ALLCATS.forEach(c => {
       const row = el("div"); row.style.cssText = "display:flex;gap:10px;align-items:center;margin:6px 0";
@@ -651,11 +704,35 @@ function renderAdmin(){
       row.append(lb, nm); cw.appendChild(row);
     });
     box.appendChild(cw);
+    const individualLimits = el("div"); individualLimits.id = "individualLimits";
+    const limLabel = el("label", "", "Limite totale partecipanti (torneo individuale)"); individualLimits.append(limLabel);
+    const limChoice = el("select"); limChoice.id = "tindchoice";
+    limChoice.append(new Option("Nessun limite", "none"), new Option("Imposta limite", "limited")); individualLimits.append(limChoice);
+    const limNum = el("input"); limNum.id = "tindnumber"; limNum.type = "number"; limNum.min = "1"; limNum.max = "100000"; limNum.step = "1"; limNum.placeholder = "Numero massimo di partecipanti"; individualLimits.append(limNum);
+    const limHidden = el("input"); limHidden.id = "tindlimit"; limHidden.type = "hidden"; individualLimits.append(limHidden);
+    const syncLimit = () => { limNum.hidden = limChoice.value !== "limited"; limHidden.value = limChoice.value === "limited" ? limNum.value : ""; };
+    limChoice.addEventListener("change", syncLimit); limNum.addEventListener("input", syncLimit);
+    box.appendChild(individualLimits);
+    const syncCats = () => {
+      const single = mode.value === "individuale";
+      catHelp.hidden = single; cw.hidden = single; individualLimits.hidden = !single;
+      if(single) { limChoice.value = limNum.value ? "limited" : "none"; syncLimit(); }
+    };
+    mode.addEventListener("change", syncCats); syncCats();
     add("Descrizione del torneo (facoltativa)", "label");
     const ta = el("textarea"); ta.id = "tdesc2"; ta.rows = 4; ta.maxLength = 2000; ta.style.cssText = "width:100%;box-sizing:border-box;padding:10px;font:inherit;font-size:16px;border:1px solid var(--line);border-radius:8px;background:var(--bg);color:var(--fg)"; box.appendChild(ta);
     add("Locandina (immagine JPG, PNG o WebP, max 5 MB, facoltativa)", "label");
     const fi = el("input"); fi.id = "tposter"; fi.type = "file"; fi.accept = "image/jpeg,image/png,image/webp"; box.appendChild(fi);
     if(et){
+      mode.value = et.registration_mode || "coppie";
+      if(individual(et)){
+        const technicalCat = tourCats(et)[0] || "Misto";
+        const oldLimit = catMax(et, technicalCat);
+        limNum.value = oldLimit == null ? "" : String(oldLimit);
+        limChoice.value = oldLimit == null ? "none" : "limited";
+        syncLimit();
+      }
+      syncCats(); syncTeamName();
       $("tteamname").checked = et.team_name_required !== false;
       $("tend").value = et.ends_at ? toLocalInput(et.ends_at) : ""; $("tformat").value = et.format_label || ""; $("tcost").value = et.cost_label || "";
       $("tdeadline").value = et.reg_deadline ? toLocalInput(et.reg_deadline) : "";
@@ -680,8 +757,12 @@ function renderAdmin(){
       S.tours.forEach(t => {
         const row = el("div", "row"); row.append(el("span", "", t.name + " · " + fmtDate(t.starts_at)));
         const mx = el("button", "del", "Modifica"); mx.onclick = () => { S.editing = t.id; renderAdmin(); box.scrollIntoView(); }; mx.style.marginRight = "6px"; row.append(mx);
+        const view = el("button", "sec", "Vedi iscritti"); view.style.cssText = "margin:4px 6px 4px 0;min-height:36px;padding:6px 10px;font-size:.85rem";
+        const detail = el("div"); detail.style.cssText = "width:100%;margin:6px 0 14px;padding:10px;border:1px solid var(--line);border-radius:8px"; detail.hidden = true;
+        view.onclick = () => { detail.hidden = !detail.hidden; if(!detail.hidden) showAdminRegistrations(t, detail); };
+        row.append(view);
         const ex = el("button", "del", "Elenco CSV"); ex.onclick = () => exportCsv(t); ex.style.marginRight = "6px"; row.append(ex);
-        const d = el("button", "del", "Elimina"); d.onclick = () => delTour(t); row.append(d); box.appendChild(row);
+        const d = el("button", "del", "Elimina"); d.onclick = () => delTour(t); row.append(d); row.style.flexWrap = "wrap"; box.appendChild(row); box.appendChild(detail);
       });
     }
     const out = add("Esci", "button", "sec"); out.onclick = logout;
