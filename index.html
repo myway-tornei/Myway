@@ -71,7 +71,7 @@ h3{font-size:1rem;margin:16px 0 0}
 <div id="promoBar" class="pbar" hidden></div>
 <main>
 <h1>🏐 MyWay Tornei</h1>
-<p class="sub">Tornei di beach volley: scegli il torneo, iscrivi la tua squadra e guarda chi è già dentro.</p>
+<p class="sub">Tornei di beach volley: scegli il torneo, iscriviti individualmente o in coppia e guarda chi è già dentro.</p>
 
 <div class="card">
   <label for="tour" style="margin-top:0">Torneo</label>
@@ -86,12 +86,12 @@ h3{font-size:1rem;margin:16px 0 0}
 </div>
 
 <div class="card" id="formCard" hidden>
-  <strong>Iscrivi la tua squadra</strong>
+  <strong id="formTitle">Iscrivi la tua squadra</strong>
   <label for="cat" style="margin-top:12px"><b>1. Scegli la categoria</b></label>
   <select id="cat"><option>Maschile</option><option>Femminile</option><option>Misto</option></select>
-  <label for="team">2. Nome squadra</label><input id="team" maxlength="40" autocomplete="off">
+  <div id="teamFields"><label for="team">2. Nome squadra</label><input id="team" maxlength="40" autocomplete="off">
   <label for="p1">Giocatore/giocatrice 1 (nome e cognome)</label><input id="p1" maxlength="60" autocomplete="off" placeholder="Nome Cognome">
-  <label for="p2">Giocatore/giocatrice 2 (nome e cognome)</label><input id="p2" maxlength="60" autocomplete="off" placeholder="Nome Cognome">
+  <label for="p2">Giocatore/giocatrice 2 (nome e cognome)</label><input id="p2" maxlength="60" autocomplete="off" placeholder="Nome Cognome"></div><div id="singleFields" hidden><label for="singleName">Nome e cognome</label><input id="singleName" maxlength="60" autocomplete="off" placeholder="Nome Cognome"><label for="level">Livello di gioco</label><select id="level"><option value="">Seleziona il livello</option><option value="Base/Intermedio">Base/Intermedio</option><option value="Intermedio/Avanzato">Intermedio/Avanzato</option></select></div>
   <label for="phone">Telefono del referente</label><input id="phone" type="tel" inputmode="tel" maxlength="20" autocomplete="tel">
   <div class="msg" style="margin-top:4px">Il numero non è pubblico: lo vede solo l'organizzatore.</div>
   <input id="zq_check" class="hp" tabindex="-1" autocomplete="off" aria-hidden="true">
@@ -101,14 +101,14 @@ h3{font-size:1rem;margin:16px 0 0}
 </div>
 
 <div class="card" id="listCard" hidden>
-  <strong>Squadre iscritte: <span class="cnt" id="n">0</span></strong>
+  <strong><span id="listTitle">Squadre iscritte</span>: <span class="cnt" id="n">0</span></strong>
   <div id="notifyBox"></div>
   <div id="list"></div>
 </div>
 
 <div class="card" id="cancelCard" hidden>
   <strong>Vuoi annullare l'iscrizione?</strong>
-  <div class="msg" style="margin-top:4px">Se non vedi il pulsante "Annulla iscrizione" (per esempio perché ti sei iscritto da un altro telefono o computer), inserisci il nome della squadra e il telefono del referente usato all'iscrizione. Si può fare fino a 24 ore prima dell'inizio del torneo.</div>
+  <div class="msg" style="margin-top:4px">Se non vedi il pulsante "Annulla iscrizione" (per esempio perché ti sei iscritto da un altro telefono o computer), inserisci il nome della squadra (oppure il tuo nome e cognome per i tornei individuali) e il telefono usato all'iscrizione. Si può fare fino a 24 ore prima dell'inizio del torneo.</div>
   <label for="ctteam">Nome squadra</label><input id="ctteam" maxlength="40" autocomplete="off">
   <label for="ctphone">Telefono del referente</label><input id="ctphone" type="tel" inputmode="tel" maxlength="20" autocomplete="off">
   <button id="ctbtn" class="sec">Annulla iscrizione</button>
@@ -136,6 +136,7 @@ const fmtTime = s => new Date(s).toLocaleTimeString("it-IT", {hour: "2-digit", m
 const sameDay = (a, b) => new Date(a).toDateString() === new Date(b).toDateString();
 const fmtRange = t => t.ends_at ? (sameDay(t.starts_at, t.ends_at) ? fmtDate(t.starts_at) + " – " + fmtTime(t.ends_at) : fmtDate(t.starts_at) + " → " + fmtDate(t.ends_at)) : fmtDate(t.starts_at);
 const ALLCATS = ["Maschile", "Femminile", "Misto"];
+const individual = t => t && t.registration_mode === "individuale";
 const tourCats = t => ALLCATS.filter(c => !t.cat_limits || Object.prototype.hasOwnProperty.call(t.cat_limits, c));
 const catMax = (t, c) => (t.cat_limits && t.cat_limits[c] != null) ? t.cat_limits[c] : null;
 const isClosed = t => !!t && ((t.reg_deadline && Date.now() > new Date(t.reg_deadline)) || Date.now() >= new Date(t.starts_at));
@@ -163,7 +164,7 @@ async function api(path, opt = {}){
 
 async function loadTours(){
   try{
-    const r = await api("tournaments?select=id,name,starts_at,ends_at,place,cat_limits,description,poster_url,cost_label,format_label,reg_deadline&order=created_at.asc");
+    const r = await api("tournaments?select=id,name,starts_at,ends_at,place,cat_limits,description,poster_url,cost_label,format_label,reg_deadline,registration_mode&order=created_at.asc");
     if(!r.ok) throw 0;
     S.tours = await r.json();
   }catch(e){ S.tours = []; $("tinfo").textContent = "Elenco tornei non disponibile al momento."; $("tinfo").className = "msg err"; }
@@ -199,6 +200,10 @@ async function selectTour(){
   wa.onclick = () => window.open("https://api.whatsapp.com/send?text=" + encodeURIComponent("*" + t.name + "*\n" + fmtRange(t) + (t.place ? "\nLuogo: " + t.place : "") + "\nIscriviti qui: " + location.href), "_blank");
   const cal = el("button", "sec", "Aggiungi al calendario"); cal.onclick = () => addToCalendar(t);
   sh.append(wa, cal);
+  const single = individual(t);
+  $("teamFields").hidden = single; $("singleFields").hidden = !single;
+  $("formTitle").textContent = single ? "Iscriviti al torneo" : "Iscrivi la tua squadra";
+  $("listTitle").textContent = single ? "Partecipanti iscritti" : "Squadre iscritte";
   const cs = $("cat"); cs.textContent = "";
   tourCats(t).forEach(c => cs.appendChild(new Option(c, c)));
   const closed = isClosed(t);
@@ -215,7 +220,7 @@ async function selectTour(){
 async function loadRegs(){
   const box = $("list");
   try{
-    const r = await api("registrations?select=id,team,p1,p2,cat,is_reserve&tournament_id=eq." + S.cur + "&order=created_at.asc");
+    const r = await api("registrations?select=id,team,p1,p2,cat,is_reserve,level&tournament_id=eq." + S.cur + "&order=created_at.asc");
     if(!r.ok) throw 0;
     S.regs = await r.json();
   }catch(e){ box.textContent = ""; box.appendChild(el("div", "msg err", "Elenco non disponibile al momento.")); return; }
@@ -229,6 +234,7 @@ async function loadRegs(){
   renderNotify(S.cur); checkPromos();
   const t = S.tours.find(x => x.id === S.cur) || {};
   const cats = tourCats(t);
+  const unit = individual(t) ? "partecipant" : "squadr";
   $("n").textContent = S.regs.filter(x => !x.is_reserve).length;
   const sb = $("tseats"); sb.textContent = "";
   cats.forEach(c => {
@@ -237,8 +243,8 @@ async function loadRegs(){
     const cls = mx == null ? "u" : (free === 0 ? "r" : (free <= 2 || free <= mx / 3 ? "o" : "g"));
     const card = el("div", "seat " + cls);
     card.append(el("div", "c", c));
-    card.append(el("div", "n", mx == null ? n + (n === 1 ? " squadra" : " squadre") : (free === 0 ? "Esaurito" : free + (free === 1 ? " posto libero" : " posti liberi"))));
-    card.append(el("div", "s", mx == null ? "nessun limite di squadre" : (free === 0 ? "iscritte " + n + "/" + mx + (rsv ? " · in riserva " + rsv : " · si va in riserva") : "su " + mx + " · iscritte " + n + (free <= 2 ? " · ultimi posti!" : ""))));
+    card.append(el("div", "n", mx == null ? n + (n === 1 ? " " + unit + "e" : " " + unit + (individual(t) ? "i" : "e")) : (free === 0 ? "Esaurito" : free + (free === 1 ? " posto libero" : " posti liberi"))));
+    card.append(el("div", "s", mx == null ? "nessun limite di " + (individual(t) ? "partecipanti" : "squadre") : (free === 0 ? "iscritte " + n + "/" + mx + (rsv ? " · in riserva " + rsv : " · si va in riserva") : "su " + mx + " · iscritte " + n + (free <= 2 ? " · ultimi posti!" : ""))));
     if(mx != null){ const bar = el("div", "bar"); const fill = el("i"); fill.style.width = Math.min(100, Math.round(n / mx * 100)) + "%"; bar.append(fill); card.append(bar); }
     sb.append(card);
     const opt = [...$("cat").options].find(o => o.value === c);
@@ -250,8 +256,8 @@ async function loadRegs(){
   const draw = it => {
     const row = el("div", "row");
     const l = el("div");
-    l.append(el("strong", "", it.team));
-    const s = el("div", "msg", [it.p1, it.p2].filter(Boolean).join(" · ")); s.style.margin = "0";
+    l.append(el("strong", "", individual(t) ? it.p1 : it.team));
+    const s = el("div", "msg", individual(t) ? (it.level || "Livello non indicato") : [it.p1, it.p2].filter(Boolean).join(" · ")); s.style.margin = "0";
     l.append(s);
     if(S.auth && phones[it.id]){
       const p = el("div", "msg", "Tel. " + phones[it.id] + " · "); p.style.margin = "0";
@@ -285,12 +291,17 @@ $("tour").addEventListener("change", e => { S.cur = e.target.value; selectTour()
 
 $("save").addEventListener("click", async () => {
   if($("zq_check").value){ $("zq_check").value = ""; msg("msg", "Controllo di sicurezza non superato: premi di nuovo Iscriviti.", true); return; }
-  const team = $("team").value.trim(), p1 = $("p1").value.trim(), p2 = $("p2").value.trim(), phone = $("phone").value.trim();
-  if(!S.cur){ msg("msg", "Scegli prima un torneo.", true); return; }
-  if(!team || !p1 || !p2 || !phone){ msg("msg", "Compila nome squadra, i due giocatori e il telefono del referente.", true); return; }
-  if(!/\S+\s+\S+/.test(p1) || !/\S+\s+\S+/.test(p2)){ msg("msg", "Per ogni giocatore scrivi nome e cognome.", true); return; }
-  if(!/^[0-9+ ()./-]{6,20}$/.test(phone)){ msg("msg", "Numero di telefono non valido: usa solo cifre, spazi e il segno +.", true); return; }
   const tr = S.tours.find(x => x.id === S.cur);
+  const single = individual(tr);
+  const p1 = (single ? $("singleName") : $("p1")).value.trim();
+  const p2 = single ? "" : $("p2").value.trim();
+  const level = single ? $("level").value : null;
+  const team = single ? p1 : $("team").value.trim();
+  const phone = $("phone").value.trim();
+  if(!S.cur){ msg("msg", "Scegli prima un torneo.", true); return; }
+  if(!team || !p1 || (!single && !p2) || !phone || (single && !level)){ msg("msg", single ? "Inserisci nome, cognome, livello e telefono." : "Compila nome squadra, i due giocatori e il telefono del referente.", true); return; }
+  if(!/\S+\s+\S+/.test(p1) || (!single && !/\S+\s+\S+/.test(p2))){ msg("msg", "Per ogni giocatore scrivi nome e cognome.", true); return; }
+  if(!/^[0-9+ ()./-]{6,20}$/.test(phone)){ msg("msg", "Numero di telefono non valido: usa solo cifre, spazi e il segno +.", true); return; }
   const late = tr && new Date(tr.starts_at) - Date.now() < 24 * 3600 * 1000;
   const warn = late
     ? "⚠️ Attenzione: mancano meno di 24 ore all'inizio del torneo, quindi l'iscrizione NON potrà più essere annullata.\n\nVuoi iscriverti lo stesso?"
@@ -304,12 +315,12 @@ $("save").addEventListener("click", async () => {
       if(fr.ok){ nCat = (await fr.json()).length; full = nCat >= mxc; }
     }catch(e){}
   }
-  if(!confirm((full ? "ℹ️ Categoria " + catSel + ": i posti sono esauriti (" + nCat + " squadre iscritte su " + mxc + "). La tua squadra andrà in LISTA DI RISERVA e verrà promossa se si libera un posto.\n\n" : "") + warn)) return;
+  if(!confirm((full ? "ℹ️ Categoria " + catSel + ": i posti sono esauriti (" + nCat + " iscrizioni su " + mxc + "). La tua iscrizione andrà in LISTA DI RISERVA e verrà promossa se si libera un posto.\n\n" : "") + warn)) return;
   $("save").disabled = true; msg("msg", "Invio in corso…");
   const id = crypto.randomUUID(), token = crypto.randomUUID();
   try{
     const r = await api("registrations", {method: "POST", headers: {Prefer: "return=minimal"},
-      body: JSON.stringify({id, tournament_id: S.cur, team, p1, p2, cat: $("cat").value, phone, delete_token: token})});
+      body: JSON.stringify({id, tournament_id: S.cur, team, p1, p2, cat: $("cat").value, phone, delete_token: token, ...(single ? {level} : {})})});
     if(r.status === 409){ msg("msg", "In questo torneo esiste già una squadra con questo nome.", true); return; }
     if(!r.ok){
       let txt = ""; try{ txt = await r.text(); }catch(e){}
@@ -318,12 +329,13 @@ $("save").addEventListener("click", async () => {
       throw 0;
     }
     const m = mine(); m[id] = token; saveMine(m);
-    ["team", "p1", "p2", "phone"].forEach(i => $(i).value = "");
+    ["team", "p1", "p2", "singleName", "phone"].forEach(i => $(i).value = "");
+    $("level").value = "";
     const okTxt = "Iscrizione ricevuta ✓ " + (late ? "Non potrà più essere annullata." : "Puoi annullarla con \"Annulla iscrizione\" da questo dispositivo, fino a 24 ore prima dell'inizio del torneo.");
     await loadRegs();
     const me = S.regs.find(x => x.id === id);
     msg("msg", me && me.is_reserve ? "Sei in LISTA DI RISERVA ✓ Se si libera un posto, la tua squadra passa tra gli iscritti. " + (late ? "L'iscrizione non potrà più essere annullata." : "Puoi annullarla da questo dispositivo fino a 24 ore prima dell'inizio.") : okTxt);
-    showRecap({t: S.tours.find(x => x.id === S.cur) || t0, team, p1, p2, phone, cat: catSel, reserve: !!(me && me.is_reserve), late});
+    showRecap({t: S.tours.find(x => x.id === S.cur) || t0, team, p1, p2, level, phone, cat: catSel, reserve: !!(me && me.is_reserve), late});
   }catch(e){ msg("msg", "Non è stato possibile iscriversi. Riprova tra poco.", true); }
   finally{ $("save").disabled = false; }
 });
@@ -333,7 +345,7 @@ function showRecap(d){
   const ov = el("div", "ov"); ov.id = "recapOv";
   const box = el("div", "recap"); ov.appendChild(box);
   box.append(el("h2", d.reserve ? "wait" : "ok", d.reserve ? "⏳ Sei in lista di riserva" : "✅ Iscrizione completata"));
-  box.append(el("div", "msg", d.reserve ? "Il posto per la categoria " + d.cat + " è esaurito. Se si libera un posto, la tua squadra passa tra gli iscritti." : "La tua squadra è iscritta. Ecco il riepilogo."));
+  box.append(el("div", "msg", d.reserve ? "Il posto per la categoria " + d.cat + " è esaurito. Se si libera un posto, la tua squadra passa tra gli iscritti." : individual(t) ? "La tua iscrizione è confermata." : "La tua squadra è iscritta. Ecco il riepilogo."));
   const dl = el("dl");
   const row = (k, v) => { if(!v) return; dl.append(el("dt", "", k)); const dd = el("dd"); if(v.nodeType) dd.append(v); else dd.textContent = v; dl.append(dd); };
   row("Torneo", t.name);
@@ -341,8 +353,8 @@ function showRecap(d){
   if(t.place){ const a = el("a", "", t.place + " – apri su Google Maps"); a.href = "https://www.google.com/maps/search/?api=1&query=" + encodeURIComponent(t.place); a.target = "_blank"; a.rel = "noopener"; a.style.color = "var(--acc2)"; row("Dove", a); }
   row("Formula", t.format_label);
   row("Costo", t.cost_label);
-  row("Squadra", d.team);
-  row("Giocatori", d.p1 + " · " + d.p2);
+  if(individual(t)){ row("Partecipante", d.p1); row("Livello", d.level); }
+  else { row("Squadra", d.team); row("Giocatori", d.p1 + " · " + d.p2); }
   row("Categoria", d.cat);
   row("Referente", d.phone);
   row("Stato", d.reserve ? "In lista di riserva" : "Iscritta");
@@ -363,7 +375,7 @@ function teamMsgDetails(it, t){
     ? new Date(t.starts_at).toLocaleDateString("it-IT", {weekday: "long", day: "numeric", month: "long", year: "numeric"}) + " → " + new Date(t.ends_at).toLocaleDateString("it-IT", {weekday: "long", day: "numeric", month: "long", year: "numeric"})
     : new Date(t.starts_at).toLocaleDateString("it-IT", {weekday: "long", day: "numeric", month: "long", year: "numeric"});
   const time = fmtTime(t.starts_at) + (t.ends_at && sameDay(t.starts_at, t.ends_at) ? " – " + fmtTime(t.ends_at) : "");
-  return "*Squadra:* " + it.team + "\n*Giocatori:* " + it.p1 + " e " + it.p2 + "\n*Categoria:* " + it.cat +
+  return (individual(t) ? "*Partecipante:* " + it.p1 + "\n*Livello:* " + (it.level || "Non indicato") : "*Squadra:* " + it.team + "\n*Giocatori:* " + it.p1 + " e " + it.p2) + "\n*Categoria:* " + it.cat +
     "\n*Giorno:* " + day + "\n*Orario:* " + time + (t.place ? "\n*Luogo:* " + t.place : "");
 }
 function promoText(it, t){
@@ -551,7 +563,7 @@ async function saveTour(){
   if(!Object.keys(limits).length){ msg("amsg", "Seleziona almeno una categoria.", true); return; }
   const body = {name, starts_at: new Date(when).toISOString(), ends_at: endv ? new Date(endv).toISOString() : null, place: place || null,
     format_label: $("tformat").value.trim() || null, cost_label: $("tcost").value.trim() || null,
-    reg_deadline: dlv ? new Date(dlv).toISOString() : null, cat_limits: limits, description: desc || null};
+    reg_deadline: dlv ? new Date(dlv).toISOString() : null, registration_mode: $("tmode").value, cat_limits: limits, description: desc || null};
   if(poster_url) body.poster_url = poster_url; else if(rmPoster) body.poster_url = null; else if(!S.editing) body.poster_url = null;
   const edit = S.editing;
   const r = edit
@@ -574,13 +586,13 @@ async function saveTour(){
 
 async function exportCsv(t){
   try{
-    const r = await api("registrations?select=id,team,p1,p2,cat,is_reserve,created_at&tournament_id=eq." + t.id + "&order=created_at.asc");
+    const r = await api("registrations?select=id,team,p1,p2,cat,is_reserve,level,created_at&tournament_id=eq." + t.id + "&order=created_at.asc");
     const pr = await api("rpc/admin_phones", {method: "POST", body: JSON.stringify({p_tid: t.id})});
     if(!r.ok || !pr.ok) throw 0;
     const regs = await r.json(), ph = {}; (await pr.json()).forEach(x => ph[x.id] = x.phone);
     const q = v => '"' + String(v == null ? "" : v).replace(/"/g, '""') + '"';
-    const rows = [["Squadra", "Giocatore 1", "Giocatore 2", "Categoria", "Telefono referente", "Stato", "Iscritta il"]].concat(
-      regs.map(x => [x.team, x.p1, x.p2, x.cat, ph[x.id] || "", x.is_reserve ? "Riserva" : "Iscritta", new Date(x.created_at).toLocaleString("it-IT")]));
+    const rows = [["Squadra", "Giocatore 1", "Giocatore 2", "Categoria", "Livello", "Telefono referente", "Stato", "Iscritta il"]].concat(
+      regs.map(x => [x.team, x.p1, x.p2, x.cat, x.level || "", ph[x.id] || "", x.is_reserve ? "Riserva" : "Iscritta", new Date(x.created_at).toLocaleString("it-IT")]));
     download("iscritti-" + t.name.replace(/[^a-z0-9]+/gi, "-").toLowerCase() + ".csv", "\ufeff" + rows.map(x => x.map(q).join(";")).join("\r\n"), "text/csv;charset=utf-8");
   }catch(e){ msg("amsg", "Impossibile scaricare l'elenco.", true); }
 }
@@ -607,7 +619,9 @@ function renderAdmin(){
     const et = S.editing ? S.tours.find(x => x.id === S.editing) : null;
     if(S.editing && !et) S.editing = null;
     add(et ? "Modifica torneo: " + et.name : "Nuovo torneo", "strong").style.display = "block";
-    field("tname", "Nome del torneo"); field("tdate", "Data e ora di inizio", "datetime-local"); field("tend", "Data e ora di fine (facoltativa)", "datetime-local"); field("tplace", "Luogo (nome e città, per il link a Google Maps)"); field("tformat", "Formula di gioco (es. 2x2 Mix)"); field("tcost", "Costo (es. 25,00 € a squadra)");
+    field("tname", "Nome del torneo");
+    add("Modalità di iscrizione", "label"); const mode = el("select"); mode.id = "tmode"; mode.append(new Option("A coppie", "coppie"), new Option("Individuale", "individuale")); box.appendChild(mode);
+    field("tdate", "Data e ora di inizio", "datetime-local"); field("tend", "Data e ora di fine (facoltativa)", "datetime-local"); field("tplace", "Luogo (nome e città, per il link a Google Maps)"); field("tformat", "Formula di gioco (es. 2x2 Mix)"); field("tcost", "Costo (es. 25,00 € a squadra)");
     field("tdeadline", "Chiusura iscrizioni (facoltativa)", "datetime-local");
     add("Categorie ammesse e numero massimo di squadre per ognuna (vuoto = nessun limite; oltre il massimo si va in riserva)", "label");
     const cw = el("div"); cw.id = "tcats";
@@ -616,7 +630,7 @@ function renderAdmin(){
       const lb = el("label"); lb.style.cssText = "display:flex;gap:6px;align-items:center;margin:0;color:var(--fg);min-width:120px";
       const cb = el("input"); cb.type = "checkbox"; cb.checked = true; cb.dataset.cat = c; cb.style.cssText = "width:auto;min-height:0";
       lb.append(cb, document.createTextNode(c));
-      const nm = el("input"); nm.type = "number"; nm.min = "1"; nm.placeholder = "max squadre"; nm.dataset.max = c; nm.style.maxWidth = "150px";
+      const nm = el("input"); nm.type = "number"; nm.min = "1"; nm.placeholder = "max posti"; nm.dataset.max = c; nm.style.maxWidth = "150px";
       cb.onchange = () => { nm.disabled = !cb.checked; };
       row.append(lb, nm); cw.appendChild(row);
     });
