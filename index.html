@@ -580,23 +580,41 @@ async function saveTour(){
     format_label: $("tformat").value.trim() || null, cost_label: $("tcost").value.trim() || null,
     reg_deadline: dlv ? new Date(dlv).toISOString() : null, registration_mode: $("tmode").value, team_name_required: $("tteamname").checked, cat_limits: limits, description: desc || null};
   if(poster_url) body.poster_url = poster_url; else if(rmPoster) body.poster_url = null; else if(!S.editing) body.poster_url = null;
-  const edit = S.editing;
-  const r = edit
-    ? await api("tournaments?id=eq." + edit, {method: "PATCH", headers: {Prefer: "return=minimal"}, body: JSON.stringify(body)})
-    : await api("tournaments", {method: "POST", headers: {Prefer: "return=minimal"}, body: JSON.stringify(body)});
-  if(!r.ok){ msg("amsg", "Non riesco a salvare il torneo (permessi, sessione scaduta o database non aggiornato).", true); return; }
-  S.editing = null;
-  if(!edit) S.cur = null;
-  await loadTours();
-  let extra = "";
-  if(edit){
-    try{
-      const nr = await api("rpc/admin_to_notify", {method: "POST", body: JSON.stringify({p_tid: edit})});
-      const n = nr.ok ? (await nr.json()).length : 0;
-      if(n) extra = " 📣 " + n + (n === 1 ? " squadra è passata" : " squadre sono passate") + " dalla riserva agli iscritti: trovi l'elenco \"Da avvisare\" sopra la lista del torneo.";
-    }catch(e){}
-  }
-  msg("amsg", (edit ? "Modifiche salvate ✓" : "Torneo aggiunto ✓") + extra);
+   const edit = S.editing;
+   let saved;
+   try {
+     const r = edit
+       ? await api("tournaments?id=eq." + encodeURIComponent(edit), {method: "PATCH", headers: {Prefer: "return=representation"}, body: JSON.stringify(body)})
+       : await api("tournaments", {method: "POST", headers: {Prefer: "return=representation"}, body: JSON.stringify(body)});
+     if(!r.ok){
+       let details = "";
+       try { const e = await r.json(); details = e.message || e.details || e.code || ""; } catch(e) {}
+       msg("amsg", "Salvataggio non riuscito (HTTP " + r.status + "). " + (details || "Verifica i permessi Supabase o la sessione amministratore."), true);
+       return;
+     }
+     saved = await r.json();
+     if(!Array.isArray(saved) || saved.length !== 1){
+       msg("amsg", edit
+         ? "Modifica NON salvata: Supabase non ha aggiornato il torneo. Verifica i permessi UPDATE e le regole RLS della tabella tournaments."
+         : "Torneo NON creato: Supabase non ha confermato l'inserimento.", true);
+       return;
+     }
+   } catch(e) {
+     msg("amsg", "Errore di connessione durante il salvataggio: " + (e.message || "riprova."), true);
+     return;
+   }
+   S.editing = null;
+   if(!edit) S.cur = null;
+   await loadTours();
+   let extra = "";
+   if(edit){
+     try{
+       const nr = await api("rpc/admin_to_notify", {method: "POST", body: JSON.stringify({p_tid: edit})});
+       const n = nr.ok ? (await nr.json()).length : 0;
+       if(n) extra = " 📣 " + n + (n === 1 ? " squadra è passata" : " squadre sono passate") + " dalla riserva agli iscritti: trovi l'elenco \"Da avvisare\" sopra la lista del torneo.";
+     }catch(e){}
+   }
+   msg("amsg", (edit ? "Modifiche salvate ✓" : "Torneo aggiunto ✓") + extra);
 }
 
 const LEVELS = ["Base/Intermedio", "Intermedio/Avanzato"];
