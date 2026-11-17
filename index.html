@@ -631,6 +631,31 @@ async function exportCsv(t){
     download("iscritti-" + t.name.replace(/[^a-z0-9]+/gi, "-").toLowerCase() + ".csv", "\ufeff" + rows.map(x => x.map(q).join(";")).join("\r\n"), "text/csv;charset=utf-8");
   }catch(e){ msg("amsg", "Impossibile scaricare l'elenco: controlla la sessione organizzatore.", true); }
 }
+async function showAdminLevelSummary(t, target){
+  if(!S.auth || !individual(t)) return;
+  target.textContent = "Caricamento riepilogo livelli…";
+  try{
+    const r = await api("registrations?select=id,level,is_reserve&tournament_id=eq." + t.id);
+    if(!r.ok) throw new Error("Lettura non consentita");
+    const regs = await r.json();
+    if(!S.auth || !target.isConnected) return;
+    target.textContent = "";
+    const title = el("strong", "", "Riepilogo partecipanti per livello");
+    target.append(title);
+    for(const level of LEVELS){
+      const group = regs.filter(x => x.level === level);
+      const confirmed = group.filter(x => !x.is_reserve).length;
+      const reserve = group.length - confirmed;
+      const line = el("div", "row");
+      line.append(el("span", "", level));
+      line.append(el("strong", "", confirmed + " iscritti" + (reserve ? " · " + reserve + " in riserva" : "")));
+      target.append(line);
+    }
+    const unknown = regs.filter(x => !LEVELS.includes(x.level));
+    if(unknown.length) target.append(el("div", "msg", "Livello non indicato: " + unknown.length));
+    target.append(el("div", "msg", "Totale: " + regs.filter(x => !x.is_reserve).length + " iscritti · " + regs.filter(x => x.is_reserve).length + " in riserva"));
+  }catch(e){target.textContent = "Riepilogo non disponibile: verifica i permessi di lettura delle iscrizioni.";}
+}
 async function showAdminRegistrations(t, target){
   if(!S.auth) return;
   target.textContent = "Caricamento iscritti…";
@@ -761,6 +786,12 @@ function renderAdmin(){
         const detail = el("div"); detail.style.cssText = "width:100%;margin:6px 0 14px;padding:10px;border:1px solid var(--line);border-radius:8px"; detail.hidden = true;
         view.onclick = () => { detail.hidden = !detail.hidden; if(!detail.hidden) showAdminRegistrations(t, detail); };
         row.append(view);
+        if(individual(t)){
+          const summary = el("div");
+          summary.style.cssText = "width:100%;margin:8px 0;padding:12px;border:1px solid var(--line);border-radius:8px;background:var(--bg)";
+          row.append(summary);
+          showAdminLevelSummary(t, summary);
+        }
         const ex = el("button", "del", "Elenco CSV"); ex.onclick = () => exportCsv(t); ex.style.marginRight = "6px"; row.append(ex);
         const d = el("button", "del", "Elimina"); d.onclick = () => delTour(t); row.append(d); row.style.flexWrap = "wrap"; box.appendChild(row); box.appendChild(detail);
       });
