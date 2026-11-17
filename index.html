@@ -89,7 +89,7 @@ h3{font-size:1rem;margin:16px 0 0}
   <strong id="formTitle">Iscrivi la tua squadra</strong>
   <label for="cat" style="margin-top:12px"><b>1. Scegli la categoria</b></label>
   <select id="cat"><option>Maschile</option><option>Femminile</option><option>Misto</option></select>
-  <div id="teamFields"><label for="team">2. Nome squadra</label><input id="team" maxlength="40" autocomplete="off">
+  <div id="teamFields"><div id="teamNameField"><label for="team">2. Nome squadra</label><input id="team" maxlength="40" autocomplete="off"></div>
   <label for="p1">Giocatore/giocatrice 1 (nome e cognome)</label><input id="p1" maxlength="60" autocomplete="off" placeholder="Nome Cognome">
   <label for="p2">Giocatore/giocatrice 2 (nome e cognome)</label><input id="p2" maxlength="60" autocomplete="off" placeholder="Nome Cognome"></div><div id="singleFields" hidden><label for="singleName">Nome e cognome</label><input id="singleName" maxlength="60" autocomplete="off" placeholder="Nome Cognome"><label for="level">Livello di gioco</label><select id="level"><option value="">Seleziona il livello</option><option value="Base/Intermedio">Base/Intermedio</option><option value="Intermedio/Avanzato">Intermedio/Avanzato</option></select></div>
   <label for="phone">Telefono del referente</label><input id="phone" type="tel" inputmode="tel" maxlength="20" autocomplete="tel">
@@ -137,6 +137,7 @@ const sameDay = (a, b) => new Date(a).toDateString() === new Date(b).toDateStrin
 const fmtRange = t => t.ends_at ? (sameDay(t.starts_at, t.ends_at) ? fmtDate(t.starts_at) + " – " + fmtTime(t.ends_at) : fmtDate(t.starts_at) + " → " + fmtDate(t.ends_at)) : fmtDate(t.starts_at);
 const ALLCATS = ["Maschile", "Femminile", "Misto"];
 const individual = t => t && t.registration_mode === "individuale";
+const showTeamName = t => !individual(t) && (!t || t.team_name_required !== false);
 const tourCats = t => ALLCATS.filter(c => !t.cat_limits || Object.prototype.hasOwnProperty.call(t.cat_limits, c));
 const catMax = (t, c) => (t.cat_limits && t.cat_limits[c] != null) ? t.cat_limits[c] : null;
 const isPast = t => Date.now() >= new Date(t.ends_at || t.starts_at).getTime();
@@ -165,7 +166,7 @@ async function api(path, opt = {}){
 
 async function loadTours(){
   try{
-    const r = await api("tournaments?select=id,name,starts_at,ends_at,place,cat_limits,description,poster_url,cost_label,format_label,reg_deadline,registration_mode&order=created_at.asc");
+    const r = await api("tournaments?select=id,name,starts_at,ends_at,place,cat_limits,description,poster_url,cost_label,format_label,reg_deadline,registration_mode,team_name_required&order=created_at.asc");
     if(!r.ok) throw 0;
     S.tours = await r.json();
   }catch(e){ S.tours = []; $("tinfo").textContent = "Elenco tornei non disponibile al momento."; $("tinfo").className = "msg err"; }
@@ -206,6 +207,7 @@ async function selectTour(){
   sh.append(wa, cal);
   const single = individual(t);
   $("teamFields").hidden = single; $("singleFields").hidden = !single;
+  $("teamNameField").hidden = !showTeamName(t);
   $("formTitle").textContent = single ? "Iscriviti al torneo" : "Iscrivi la tua squadra";
   $("listTitle").textContent = single ? "Partecipanti iscritti" : "Squadre iscritte";
   const cs = $("cat"); cs.textContent = "";
@@ -260,7 +262,7 @@ async function loadRegs(){
   const draw = it => {
     const row = el("div", "row");
     const l = el("div");
-    l.append(el("strong", "", individual(t) ? it.p1 : it.team));
+    l.append(el("strong", "", individual(t) ? it.p1 : (showTeamName(t) ? it.team : it.p1 + " / " + it.p2)));
     const s = el("div", "msg", individual(t) ? (it.level || "Livello non indicato") : [it.p1, it.p2].filter(Boolean).join(" · ")); s.style.margin = "0";
     l.append(s);
     if(S.auth && phones[it.id]){
@@ -300,10 +302,10 @@ $("save").addEventListener("click", async () => {
   const p1 = (single ? $("singleName") : $("p1")).value.trim();
   const p2 = single ? "" : $("p2").value.trim();
   const level = single ? $("level").value : null;
-  const team = single ? p1 : $("team").value.trim();
+  const team = single ? p1 : (showTeamName(tr) ? $("team").value.trim() : (p1 + " / " + p2).slice(0, 40));
   const phone = $("phone").value.trim();
   if(!S.cur){ msg("msg", "Scegli prima un torneo.", true); return; }
-  if(!team || !p1 || (!single && !p2) || !phone || (single && !level)){ msg("msg", single ? "Inserisci nome, cognome, livello e telefono." : "Compila nome squadra, i due giocatori e il telefono del referente.", true); return; }
+  if(!team || !p1 || (!single && !p2) || !phone || (single && !level)){ msg("msg", single ? "Inserisci nome, cognome, livello e telefono." : (showTeamName(tr) ? "Compila nome squadra, i due giocatori e il telefono del referente." : "Compila i due giocatori e il telefono del referente."), true); return; }
   if(!/\S+\s+\S+/.test(p1) || (!single && !/\S+\s+\S+/.test(p2))){ msg("msg", "Per ogni giocatore scrivi nome e cognome.", true); return; }
   if(!/^[0-9+ ()./-]{6,20}$/.test(phone)){ msg("msg", "Numero di telefono non valido: usa solo cifre, spazi e il segno +.", true); return; }
   const late = tr && new Date(tr.starts_at) - Date.now() < 24 * 3600 * 1000;
@@ -358,7 +360,7 @@ function showRecap(d){
   row("Formula", t.format_label);
   row("Costo", t.cost_label);
   if(individual(t)){ row("Partecipante", d.p1); row("Livello", d.level); }
-  else { row("Squadra", d.team); row("Giocatori", d.p1 + " · " + d.p2); }
+  else { if(showTeamName(t)) row("Squadra", d.team); row("Giocatori", d.p1 + " · " + d.p2); }
   row("Categoria", d.cat);
   row("Referente", d.phone);
   row("Stato", d.reserve ? "In lista di riserva" : "Iscritta");
@@ -567,7 +569,7 @@ async function saveTour(){
   if(!Object.keys(limits).length){ msg("amsg", "Seleziona almeno una categoria.", true); return; }
   const body = {name, starts_at: new Date(when).toISOString(), ends_at: endv ? new Date(endv).toISOString() : null, place: place || null,
     format_label: $("tformat").value.trim() || null, cost_label: $("tcost").value.trim() || null,
-    reg_deadline: dlv ? new Date(dlv).toISOString() : null, registration_mode: $("tmode").value, cat_limits: limits, description: desc || null};
+    reg_deadline: dlv ? new Date(dlv).toISOString() : null, registration_mode: $("tmode").value, team_name_required: $("tteamname").checked, cat_limits: limits, description: desc || null};
   if(poster_url) body.poster_url = poster_url; else if(rmPoster) body.poster_url = null; else if(!S.editing) body.poster_url = null;
   const edit = S.editing;
   const r = edit
@@ -631,6 +633,10 @@ function renderAdmin(){
     add(et ? "Modifica torneo: " + et.name : "Nuovo torneo", "strong").style.display = "block";
     field("tname", "Nome del torneo");
     add("Modalità di iscrizione", "label"); const mode = el("select"); mode.id = "tmode"; mode.append(new Option("A coppie", "coppie"), new Option("Individuale", "individuale")); box.appendChild(mode);
+    const teamNameLabel = el("label"); teamNameLabel.style.cssText = "display:flex;gap:8px;align-items:center;color:var(--fg)";
+    const teamNameCheck = el("input"); teamNameCheck.type = "checkbox"; teamNameCheck.id = "tteamname"; teamNameCheck.checked = true; teamNameCheck.style.cssText = "width:auto;min-height:0";
+    teamNameLabel.append(teamNameCheck, document.createTextNode("Richiedi il nome della squadra")); box.appendChild(teamNameLabel);
+    const syncTeamName = () => { teamNameLabel.hidden = mode.value === "individuale"; }; mode.addEventListener("change", syncTeamName); syncTeamName();
     field("tdate", "Data e ora di inizio", "datetime-local"); field("tend", "Data e ora di fine (facoltativa)", "datetime-local"); field("tplace", "Luogo (nome e città, per il link a Google Maps)"); field("tformat", "Formula di gioco (es. 2x2 Mix)"); field("tcost", "Costo (es. 25,00 € a squadra)");
     field("tdeadline", "Chiusura iscrizioni (facoltativa)", "datetime-local");
     add("Categorie ammesse e numero massimo di squadre per ognuna (vuoto = nessun limite; oltre il massimo si va in riserva)", "label");
@@ -650,6 +656,7 @@ function renderAdmin(){
     add("Locandina (immagine JPG, PNG o WebP, max 5 MB, facoltativa)", "label");
     const fi = el("input"); fi.id = "tposter"; fi.type = "file"; fi.accept = "image/jpeg,image/png,image/webp"; box.appendChild(fi);
     if(et){
+      $("tteamname").checked = et.team_name_required !== false;
       $("tend").value = et.ends_at ? toLocalInput(et.ends_at) : ""; $("tformat").value = et.format_label || ""; $("tcost").value = et.cost_label || "";
       $("tdeadline").value = et.reg_deadline ? toLocalInput(et.reg_deadline) : "";
       ALLCATS.forEach(c => {
